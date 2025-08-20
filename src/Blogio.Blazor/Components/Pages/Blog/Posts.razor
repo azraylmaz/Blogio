@@ -1,0 +1,428 @@
+﻿@page "/blog"
+@using Blogio.Blazor.Models
+@inject Services.BlogApi Api
+@inject NavigationManager Nav
+@using AuthorModel = Blogio.Blazor.Models.AuthorDto
+@using Microsoft.AspNetCore.Components.Authorization
+
+<PageTitle>Blog Posts</PageTitle>
+
+<!-- ÜST: Arama barı (full width) -->
+<Row Class="mb-3">
+    <Column>
+        <InputGroup Size="Size.Large">
+            <TextEdit @bind-Text="filter.Filter" Placeholder="Title/Content..." />
+            <InputGroupAppend>
+                <Button Color="Color.Primary" Clicked="Search">
+                    <Icon Name="IconName.Search" Class="me-1" /> Search
+                </Button>
+            </InputGroupAppend>
+        </InputGroup>
+    </Column>
+</Row>
+
+<Row>
+    <Column md="12" lg="9" xl="10" xxl="10" Style="flex: 0 0 80%; max-width: 80%;">
+        <DataGrid TItem="BlogPostListItemDto"
+                  @ref="grid"
+                  Data="@items"
+                  TotalItems="@total"
+                  ReadData="@OnReadData"
+                  ShowPager="true"
+                  PageSize="pageSize"
+                  Responsive="true"
+                  ShowCaptions="true"
+                  Editable="false">
+            <DataGridColumns>
+                <DataGridColumn TItem="BlogPostListItemDto"
+                                Field="@nameof(BlogPostListItemDto.Title)"
+                                Caption="Title">
+                    <DisplayTemplate Context="row">
+                        <a href="@($"/blog/{row.Id}")"
+                           class="text-decoration-none text-reset fw-semibold"
+                           @onclick:stopPropagation="true">
+                            @row.Title
+                        </a>
+                    </DisplayTemplate>
+                </DataGridColumn>
+                <DataGridColumn TItem="BlogPostListItemDto" Field="@nameof(BlogPostListItemDto.CommentCount)" Caption="Comment" />
+                <DataGridColumn TItem="BlogPostListItemDto" Field="@nameof(BlogPostListItemDto.LikeCount)" Caption="Like" />
+                
+                <AuthorizeView Roles="admin,author">
+                    <Authorized>
+                        <DataGridColumn TItem="BlogPostListItemDto" Field="@nameof(BlogPostListItemDto.IsPublished)" Caption="Published">
+                            <DisplayTemplate Context="row">
+                                @if (row.IsPublished)
+                                {
+                                    <Badge Color="Color.Success">Yes</Badge>
+                                }
+                                else
+                                {
+                                    <Badge Color="Color.Secondary">No</Badge>
+                                }
+                            </DisplayTemplate>
+                        </DataGridColumn>
+                    </Authorized>
+                    </AuthorizeView>/>
+
+                <DataGridCommandColumn TItem="BlogPostListItemDto">
+                    <DisplayTemplate Context="row">
+                        <Button Size="Size.Small" Color="Color.Light" Clicked="() => GoDetails(row.Id)">Details</Button>
+                        <Button Size="Size.Small" Color="Color.Primary" Class="ms-1" Clicked="() => Edit(row.Id)">Edit</Button>
+                        @if (row.IsPublished)
+                        {
+                            <Button Size="Size.Small" Color="Color.Dark" Class="ms-1" Clicked="() => Unpublish(row.Id)">Hide</Button>
+                        }
+                        else
+                        {
+                            <Button Size="Size.Small" Color="Color.Success" Class="ms-1" Clicked="() => Publish(row.Id)">Publish</Button>
+                        }
+                        <Button Size="Size.Small" Color="Color.Warning" Class="ms-1" Clicked="() => Like(row.Id)">👍</Button>
+                        <Button Size="Size.Small" Color="Color.Danger" Class="ms-1" Clicked="() => Delete(row.Id)">Delete</Button>
+                    </DisplayTemplate>
+                </DataGridCommandColumn>
+            </DataGridColumns>
+        </DataGrid>
+    </Column>
+
+    <Column md="12" lg="3" xl="2" xxl="2">
+        <Card Class="shadow-sm" Style="position: sticky; top: 1rem;">
+            <CardHeader>
+                <div class="d-flex align-items-center gap-2">
+                    <Icon Name="IconName.Filter" /> <span class="fw-semibold">Filters</span>
+                </div>
+            </CardHeader>
+            <CardBody>
+                <AuthorizeView Roles="admin, author">
+                    <Authorized>
+                        <Field>
+                            <FieldLabel>Published</FieldLabel>
+                                    <Switch @bind-Checked="publishedOnly"
+                                            Changed="@(async (bool _) => await Search())"
+                                            CheckedText="Only Published"
+                                            UncheckedText="All" />
+                        </Field>
+                    </Authorized>
+                </AuthorizeView>
+
+
+
+
+                <Field Class="mt-2">
+                    <FieldLabel>Tag</FieldLabel>
+                    <Select TValue="Guid?"
+                            SelectedValue="@selectedTagId"
+                            SelectedValueChanged="@( v => { selectedTagId = v; return Search(); } )">
+                        <SelectItem Value="@((Guid?)null)">— All —</SelectItem>
+                        @foreach (var t in tags)
+                        {
+                            <SelectItem Value="@t.Id">@t.Name</SelectItem>
+                        }
+                    </Select>
+                </Field>
+
+                <Field Class="mt-2">
+                    <FieldLabel>Author</FieldLabel>
+                    <Select TValue="Guid?"
+                            SelectedValue="@selectedAuthorId"
+                            SelectedValueChanged="@( v => { selectedAuthorId = v; return Search(); } )">
+                        <SelectItem Value="@((Guid?)null)">— All —</SelectItem>
+                        @foreach (var a in authors)
+                        {
+                            <SelectItem Value="@a.Id">@DisplayAuthorName(a)</SelectItem>
+                        }
+                    </Select>
+                </Field>
+
+                <Divider Class="my-3" />
+                <Button Color="Color.Secondary" Outline Clicked="ClearFilters">Clear</Button>
+
+                <AuthorizeView Roles="admin,author">
+                    <Authorized>
+                        <Button Color="Color.Success" Class="ms-2" Clicked="CreateNew">New Blog Post</Button>
+                    </Authorized>
+                </AuthorizeView>
+
+            </CardBody>
+        </Card>
+    </Column>
+</Row>
+
+<!------------ MODAL (New Blog Post) ------------>
+<AuthorizeView Roles="admin, author">
+    <Authorized>
+        <Modal @bind-Visible="editVisible"
+               Size="ModalSize.Default"
+               Centered="true"
+               Scrollable="true"
+               Backdrop="true"
+               Class="p-2">
+
+            <ModalBody Class="p-4">
+                <div class="mx-auto my-3" style="max-width: 860px;">
+                    <Card Class="shadow-lg rounded-4 border-0" Style="background:#f3f3f3; color:#212529;">
+                        <CardHeader Class="bg-transparent border-0 pt-4 pb-0">
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="fw-semibold fs-4">
+                                    @(editingId == null ? "New Blog Post" : "Edit Post")
+                                </span>
+                            </div>
+                        </CardHeader>
+
+                        <CardBody Class="pb-2">
+                            <div class="row g-3">
+                                <div class="col-12 px-4">
+                                    <Field>
+                                        <FieldLabel>Title</FieldLabel>
+                                        <Validation Validator="@ValidateTitle">
+                                            <TextEdit @bind-Text="form.Title" Placeholder="Title..."
+                                                      Class="form-control form-control-lg bg-white border-0" />
+                                        </Validation>
+                                    </Field>
+                                </div>
+
+                                <div class="col-12 px-4">
+                                    <Field>
+                                        <FieldLabel>Content</FieldLabel>
+                                        <Validation Validator="@ValidateContent">
+                                            <MemoEdit @bind-Text="form.Content" Rows="8" Placeholder="Content..."
+                                                      Class="form-control bg-white border-0" />
+                                        </Validation>
+                                    </Field>
+                                </div>
+
+                                <div class="col-12 col-md-6 px-4">
+                                    <Field>
+                                        <FieldLabel>Author</FieldLabel>
+                                        <Validation Validator="@ValidateAuthorRequired">
+                                            <Select TValue="Guid?" @bind-SelectedValue="selectedAuthorIdInForm"
+                                                    Class="form-select bg-white border-0">
+                                                <SelectItem Value="@((Guid?)null)">— Choose Author —</SelectItem>
+                                                @foreach (var a in authors)
+                                                {
+                                                    <SelectItem Value="@a.Id">@DisplayAuthorName(a)</SelectItem>
+                                                }
+                                            </Select>
+                                        </Validation>
+                                    </Field>
+                                </div>
+
+                                <div class="col-12 col-md-6 px-4">
+                                    <Field>
+                                        <FieldLabel>Tag</FieldLabel>
+                                        <Select TValue="Guid" Multiple="true"
+                                                SelectedValues="@selectedTagIds"
+                                                SelectedValuesChanged="@( (IReadOnlyList<Guid> vals) => OnSelectedTagsChanged(vals) )"
+                                                Class="form-select bg-white border-0">
+                                            @foreach (var t in tags)
+                                            {
+                                                <SelectItem Value="@t.Id">@t.Name</SelectItem>
+                                            }
+                                        </Select>
+                                        <div class="form-text text-secondary mt-1">
+                                            For multiple: hold Ctrl / ⌘
+                                        </div>
+                                    </Field>
+                                </div>
+
+                                <div class="col-12 px-4">
+                                    <Field>
+                                        <FieldLabel>Publish</FieldLabel>
+                                        <Switch @bind-Checked="isPublishedSwitch"
+                                                CheckedText="Publish"
+                                                UncheckedText="Draft"
+                                                Color="Color.Success" />
+                                    </Field>
+                                </div>
+                            </div>
+                        </CardBody>
+
+                        <CardFooter Class="bg-transparent border-0 d-flex justify-content-end gap-2 px-4 pb-4">
+                            <Button Color="Color.Secondary" Outline Clicked="() => editVisible = false">Cancel</Button>
+                            <Button Color="Color.Primary" Clicked="@Save">Save</Button>
+                        </CardFooter>
+                    </Card>
+                </div>
+            </ModalBody>
+        </Modal>
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    private readonly int pageSize = 10;
+    private int total;
+    private List<BlogPostListItemDto> items = new();
+    private List<TagDto> tags = new();
+    private List<AuthorModel> authors = new();
+
+    private GetBlogPostListDto filter = new();
+    private bool publishedOnly;
+    private Guid? selectedTagId;
+
+    // edit modal state
+    private bool editVisible;
+    private Guid? editingId;
+    private CreateUpdateBlogPostDto form = new();
+    private bool isPublishedSwitch;
+    private Validations? formValidations;
+
+    private Guid? selectedAuthorIdInForm; // modal yazar seçimi
+    private static string DisplayAuthorName(AuthorModel a)
+        => !string.IsNullOrWhiteSpace(a.Name) ? $"{a.Name} {a.Surname}" : a.UserName;
+
+    private void ValidateTitle(ValidatorEventArgs e)
+    {
+        var v = e.Value?.ToString();
+        e.Status = !string.IsNullOrWhiteSpace(v) ? ValidationStatus.Success : ValidationStatus.Error;
+        if (e.Status == ValidationStatus.Error) e.ErrorText = "Başlık zorunlu";
+    }
+    private void ValidateContent(ValidatorEventArgs e)
+    {
+        var v = e.Value?.ToString();
+        e.Status = !string.IsNullOrWhiteSpace(v) ? ValidationStatus.Success : ValidationStatus.Error;
+        if (e.Status == ValidationStatus.Error) e.ErrorText = "İçerik zorunlu";
+    }
+    private void ValidateAuthorRequired(ValidatorEventArgs e)
+    {
+        e.Status = (selectedAuthorIdInForm.HasValue && selectedAuthorIdInForm.Value != Guid.Empty)
+            ? ValidationStatus.Success : ValidationStatus.Error;
+        if (e.Status == ValidationStatus.Error) e.ErrorText = "Yazar seçin";
+    }
+
+    // Etiket seçimi
+    private IReadOnlyList<Guid> selectedTagIds = Array.Empty<Guid>();
+    private void OnSelectedTagsChanged(IReadOnlyList<Guid> values)
+    {
+        selectedTagIds = values ?? Array.Empty<Guid>();
+        form.TagIds = values?.ToList() ?? new();
+    }
+
+    private Guid? selectedAuthorId;
+    [Parameter][SupplyParameterFromQuery] public Guid? authorId { get; set; }
+
+    [CascadingParameter] private Task<AuthenticationState> AuthTask { get; set; } = default!;
+    private bool _canManage; // admin/author?
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthTask;
+        var user = auth.User;
+        _canManage = user.IsInRole("admin") || user.IsInRole("author");
+
+        // normal kullanıcılar için her zaman published
+        if (!_canManage) publishedOnly = true;
+
+        tags = await Api.GetAllTagsAsync() ?? new();
+        authors = await Api.GetAuthorsAsync() ?? new();
+
+        if (authorId.HasValue)
+            selectedAuthorId = authorId;
+    }
+
+    private async Task OnReadData(DataGridReadDataEventArgs<BlogPostListItemDto> e)
+    {
+        var page = e.Page <= 0 ? 1 : e.Page;
+        var size = e.PageSize > 0 ? e.PageSize : pageSize;
+
+        filter.SkipCount = (page - 1) * size;
+        filter.MaxResultCount = size;
+
+        // yönetebilenler için switch çalışsın, diğerleri için her zaman true
+        filter.IsPublished = _canManage ? (publishedOnly ? true : (bool?)null) : true;
+
+        filter.AuthorId = selectedAuthorId;
+        filter.TagIds = selectedTagId is Guid g ? new List<Guid> { g } : null;
+
+        var result = await Api.GetListAsync(filter);
+        items = result.Items;
+        total = (int)result.TotalCount;
+
+
+    }
+
+    private DataGrid<BlogPostListItemDto>? grid;
+
+    private async Task Search()
+    {
+        if (grid is not null)
+            await grid.Reload();
+    }
+
+    private Task ClearFilters()
+    {
+        publishedOnly = false;
+        selectedTagId = null;
+        selectedAuthorId = null;
+        filter.Filter = string.Empty;
+        return Search();
+    }
+
+    private void CreateNew()
+    {
+        editingId = null;
+        form = new CreateUpdateBlogPostDto { Title = "", Content = "", TagIds = new() };
+        selectedAuthorIdInForm = null;
+        isPublishedSwitch = false;
+        editVisible = true;
+    }
+
+    private async Task Edit(Guid id)
+    {
+        var dto = await Api.GetAsync(id);
+        if (dto is null) return;
+        editingId = id;
+        form = new CreateUpdateBlogPostDto
+        {
+            Title = dto.Title,
+            Content = dto.Content,
+            TagIds = dto.BlogPostTags.Select(t => t.Id).ToList(),
+            IsPublished = dto.IsPublished
+        };
+        selectedAuthorIdInForm = dto.AuthorId;
+        isPublishedSwitch = dto.IsPublished;
+        editVisible = true;
+    }
+
+    private async Task Save()
+    {
+        if (formValidations is not null && !await formValidations.ValidateAll()) return;
+        if (!selectedAuthorIdInForm.HasValue) return;
+
+        form.AuthorId = selectedAuthorIdInForm.Value;
+        form.IsPublished = isPublishedSwitch;
+
+        if (editingId is null)
+            await Api.CreateAsync(form);
+        else
+            await Api.UpdateAsync(editingId.Value, form);
+
+        editVisible = false;
+        await Search();
+    }
+
+    private async Task Delete(Guid id)
+    {
+        await Api.DeleteAsync(id);
+        await Search();
+    }
+
+    private async Task Publish(Guid id)
+    {
+        await Api.PublishAsync(id);
+        await Search();
+    }
+
+    private async Task Unpublish(Guid id)
+    {
+        await Api.UnpublishAsync(id);
+        await Search();
+    }
+
+    private async Task Like(Guid id)
+    {
+        await Api.LikeAsync(id);
+        await Search();
+    }
+
+    private void GoDetails(Guid id) => Nav.NavigateTo($"/blog/{id}");
+}

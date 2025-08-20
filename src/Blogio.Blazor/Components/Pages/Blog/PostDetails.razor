@@ -1,0 +1,431 @@
+﻿@page "/blog/{id:guid}"
+@inject Services.BlogApi Api
+@inject NavigationManager Nav
+@using AuthorModel = Blogio.Blazor.Models.AuthorDto
+@using Microsoft.AspNetCore.Components.Authorization
+
+
+<PageTitle>Blog Post</PageTitle>
+
+@if (post is null)
+{
+    <div>Loading...</div>
+}
+else
+{
+    <Row Class="g-3">
+        <!-- SOL: Yazı + Yazar bilgisi + Yazarın diğer yazıları -->
+        <Column md="12" lg="9" xl="10" xxl="10" Style="flex: 0 0 70%; max-width: 70%;">
+            <Card>
+                <CardHeader>
+                    <div class="d-flex align-items-center justify-content-between">
+                        <h4 class="mb-0">@post.Title</h4>
+                        <AuthorizeView Roles="admin, author">
+                            <Authorized>
+                                <div>
+                                    <Badge Color="@(post.IsPublished? Color.Success: Color.Secondary)">
+                                        @(post.IsPublished ? "Published" : "Draft")
+                                    </Badge>
+                                </div>
+                            </Authorized>
+                        </AuthorizeView>
+                    </div>
+                </CardHeader>
+                <CardBody>
+                    <p style="white-space: pre-wrap;">@post.Content</p>
+
+                    @if (post.BlogPostTags?.Count > 0)
+                    {
+                        <div class="mt-3">
+                            @foreach (var t in post.BlogPostTags)
+                            {
+                                <Badge Color="Color.Info" Class="me-1">@t.Name</Badge>
+                            }
+                        </div>
+                    }
+                </CardBody>
+
+            </Card>
+
+            <!-- Yazar kartı -->
+            @if (author is not null)
+            {
+                <Card class="mt-3">
+                    <CardHeader><h6 class="mb-0">Author</h6></CardHeader>
+                    <CardBody>
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <div class="fw-semibold">@DisplayAuthorName(author)</div>
+                                @if (!string.IsNullOrWhiteSpace(author.Email))
+                                {
+                                    <div class="text-muted small">@author.Email</div>
+                                }
+                            </div>
+                            <Button Color="Color.Light"
+                                    Clicked="@(() => Nav.NavigateTo($"/blog?authorId={author.Id}"))">
+                                This author's posts
+                            </Button>
+                        </div>
+                    </CardBody>
+                </Card>
+            }
+
+            <!-- Yazarın diğer yazıları -->
+            @if (otherPosts?.Count > 0)
+            {
+                <Card class="mt-3">
+                    <CardHeader><h6 class="mb-0">This author's posts</h6></CardHeader>
+                    <CardBody>
+                        <ListGroup>
+                            @foreach (var p in otherPosts)
+                            {
+                                <ListGroupItem Class="d-flex justify-content-between align-items-center">
+                                    <span>@p.Title</span>
+                                    <Button Size="Size.Small" Color="Color.Light"
+                                            Clicked="@(() => Nav.NavigateTo($"/blog/{p.Id}"))">
+                                        Aç
+                                    </Button>
+                                </ListGroupItem>
+                            }
+                        </ListGroup>
+                    </CardBody>
+                </Card>
+            }
+        </Column>
+
+        <!-- SAĞ: Beğeni + Yorumlar -->
+        <Column md="12" lg="3" xl="2" xxl="2">
+            <Card class="shadow-sm" style="position: sticky; top: 1rem;">
+                <CardHeader>
+                    <div class="d-flex justify-content-between align-items-start w-100">
+
+                        <!-- Sağ tarafta: Like (üstünde başlık) + Unpublish/Publish yan yana -->
+                        <div class="d-flex align-items-end gap-2">
+                            <!-- Like grubu -->
+                            <div class="d-flex flex-column align-items-center me-2">
+                                <Button Type="ButtonType.Button"
+                                        Size="Size.Small"
+                                        Color="Color.Success"
+                                        Outline
+                                        Class="px-2 py-1"
+                                        Clicked="Like">
+                                    <Icon Name="IconName.ThumbsUp" class="me-1" />
+                                    Like (@post!.LikeCount)
+                                </Button>
+                            </div>
+
+                            <!-- EDIT (Unpublish/Publish'ten önce) -->
+                            <AuthorizeView Roles="admin, author">
+                                <Authorized>
+                                    <Button Size="Size.Small" Color="Color.Info" Clicked="OpenEdit">
+                                        <Icon Name="IconName.Edit" class="me-1" /> Edit
+                                    </Button>
+
+                                    <!-- Publish/Unpublish butonu -->
+                                    @if (post!.IsPublished)
+                                    {
+                                        <Button Size="Size.Small" Color="Color.Dark" Clicked="Unpublish">Unpublish</Button>
+                                    }
+                                    else
+                                    {
+                                        <Button Size="Size.Small" Color="Color.Primary" Clicked="Publish">Publish</Button>
+                                    }
+                                </Authorized>
+                            </AuthorizeView>
+                        </div>
+                    </div>
+                </CardHeader>
+
+
+                <CardBody>
+                    <!-- Yorum ekleme -->
+                    <div class="mb-3 d-flex">
+                        <TextEdit Class="flex-grow-1" @bind-Text="newComment" Placeholder="Write a Comment..." />
+                        <Button Size="Size.Small" Color="Color.Primary" Class="ms-2" Clicked="@AddComment">Add</Button>
+                    </div>
+
+                    <!-- Yorum listesi -->
+                    @if (comments.Count == 0)
+                    {
+                        <div class="text-muted">No Comments.</div>
+                    }
+                    else
+                    {
+                        <ListGroup>
+                            @foreach (var c in comments)
+                            {
+                                <ListGroupItem>
+                                    <div class="d-flex justify-content-between">
+                                        <div>
+                                            <div>@c.Text</div>
+                                            <div class="small text-muted">
+                                                @if (!string.IsNullOrWhiteSpace(c.CreatorUserName))
+                                                {
+                                                    @c.CreatorUserName
+                                                }
+                                                @if (c.CreationTime != null)
+                                                {
+                                                    <text> · @c.CreationTime.Value.ToLocalTime().ToString("g")</text>
+                                                }
+                                            </div>
+                                        </div>
+                                        <Button Size="Size.Small" Color="Color.Light" Clicked="() => DeleteComment(c.Id)">
+                                            Delete
+                                        </Button>
+                                    </div>
+                                </ListGroupItem>
+                            }
+                        </ListGroup>
+
+                    }
+                </CardBody>
+            </Card>
+        </Column>
+    </Row>
+
+    <!---------------  -- MODAL ------------------>
+    <Modal @bind-Visible="editVisible"
+           Size="ModalSize.Default"
+           Centered="true"
+           Scrollable="true"
+           Backdrop="true"
+           Class="p-2">
+
+        <ModalBody Class="p-4">
+            <div class="mx-auto my-3" style="max-width: 860px;">
+                <Card Class="shadow-lg rounded-4 border-0" Style="background:#f3f3f3; color:#212529;">
+                    <CardHeader class="bg-transparent border-0 pt-4 pb-0">
+                        <span class="fw-semibold fs-5">Edit Blog Post</span>
+                    </CardHeader>
+                    <br />
+                    <CardBody class="pb-2">
+                        <div class="row g-3">
+                            <div class="col-12 px-4">
+                                <Field>
+                                    <FieldLabel>Title</FieldLabel>
+                                    <TextEdit @bind-Text="form.Title" Placeholder="Title..." />
+                                </Field>
+                            </div>
+
+                            <div class="col-12 px-4">
+                                <Field>
+                                    <FieldLabel>Content</FieldLabel>
+                                    <MemoEdit @bind-Text="form.Content" Rows="8" Placeholder="Content..." />
+                                </Field>
+                            </div>
+
+                            <div class="col-12 col-md-6 px-4">
+                                <Field>
+                                    <FieldLabel>Author</FieldLabel>
+                                    <TextEdit ReadOnly="true" Plaintext="true"
+                                              Text="@(author is null ? string.Empty : DisplayAuthorName(author))" />
+                                </Field>
+                            </div>
+
+                            <div class="col-12 col-md-6 px-4">
+                                <Field>
+                                    <FieldLabel>Tags</FieldLabel>
+                                    <Select TValue="Guid"
+                                            Multiple="true"
+                                            SelectedValues="@selectedTagIds"
+                                            SelectedValuesChanged="@( (IReadOnlyList<Guid> vals) => OnSelectedTagsChanged(vals) )">
+                                        @foreach (var t in tags)
+                                        {
+                                            <SelectItem Value="@t.Id">@t.Name</SelectItem>
+                                        }
+                                    </Select>
+                                </Field>
+                            </div>
+
+                            <div class="col-12 px-4">
+                                <Field>
+                                    <FieldLabel class="mb-1">Publish</FieldLabel>
+                                    <Switch @bind-Checked="isPublishedSwitch"
+                                            CheckedText="Publish"
+                                            UncheckedText="Draft"
+                                            Color="Color.Success" />
+                                </Field>
+                            </div>
+                        </div>
+                    </CardBody>
+
+                    <CardFooter class="bg-transparent border-0 d-flex justify-content-end gap-2 px-4 pb-3">
+                        <Button Color="Color.Secondary" Outline Clicked="() => editVisible = false">Cancel</Button>
+                        <Button Color="Color.Primary" Clicked="SaveEdit">Save</Button>
+                    </CardFooter>
+                </Card>
+            </div>
+        </ModalBody>
+    </Modal>
+}
+
+@code {
+    [Parameter] public Guid id { get; set; }
+
+    private BlogPostDto? post;
+    private List<CommentDto> comments = new();
+    private string newComment = "";
+
+    private AuthorModel? author;
+    private List<BlogPostListItemDto> otherPosts = new();
+
+    private List<TagDto> tags = new();
+    private List<AuthorModel> authors = new();
+
+
+    [CascadingParameter] private Task<AuthenticationState> AuthTask { get; set; } = default!;
+    private bool _canManage;
+    // --- OnParametersSetAsync: Sayfa yüklendiğinde veya parametreler değiştiğinde çağrılır
+    protected override async Task OnParametersSetAsync()
+    {
+        var auth = await AuthTask;
+        var user = auth.User;
+        _canManage = user.IsInRole("admin") || user.IsInRole("author");
+
+        if (id == Guid.Empty) return;
+
+        // 1) Post
+        post = await Api.GetAsync(id);
+        if (post is null) return;
+
+        // Yayında değilse ve yönetemiyorsa -> uzaklaştır
+        if (!post.IsPublished && !_canManage)
+        {
+            Nav.NavigateTo("/blog");
+            return;
+        }
+
+        // 2) Yorumlar (hata atmasın)
+        comments = await Api.GetCommentsAsync(id) ?? new();
+
+        // 3) Yazar bilgisi (liste içinden bul)
+        authors = await Api.GetAuthorsAsync() ?? new();
+        author = authors.FirstOrDefault(a => a.Id == post.AuthorId);
+
+        // 4) Yazarın diğer yazıları (yayında olanlar, max 5; mevcut yazıyı hariç tut)
+        var list = await Api.GetListAsync(new GetBlogPostListDto
+        {
+            AuthorId = post.AuthorId,
+            IsPublished = true,
+            MaxResultCount = 5,
+            SkipCount = 0,
+            Sorting = "CreationTime desc"
+        });
+
+        otherPosts = (list?.Items ?? new())
+            .Where(p => p.Id != id)
+            .ToList();
+
+        tags = await Api.GetAllTagsAsync() ?? new();
+    }
+
+    private static string DisplayAuthorName(AuthorModel a)
+        => !string.IsNullOrWhiteSpace(a.Name) ? $"{a.Name} {a.Surname}" : a.UserName;
+
+    private async Task Like()
+    {
+        if (post is null) return;
+        post.LikeCount = await Api.LikeAsync(post.Id);   // int dönüyor
+        await InvokeAsync(StateHasChanged);
+    }
+
+
+    private async Task Publish()
+    {
+        if (post is null) return;
+        await Api.PublishAsync(post.Id);
+        post.IsPublished = true;
+        StateHasChanged();
+    }
+
+    private async Task Unpublish()
+    {
+        if (post is null) return;
+        await Api.UnpublishAsync(post.Id);
+        post.IsPublished = false;
+        StateHasChanged();
+    }
+
+    private async Task AddComment()
+    {
+        if (post is null || string.IsNullOrWhiteSpace(newComment)) return;
+        await Api.AddCommentAsync(new CreateUpdateCommentDto { BlogPostId = post.Id, Text = newComment });
+        comments = await Api.GetCommentsAsync(post.Id) ?? new();
+        newComment = "";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task DeleteComment(Guid cid)
+    {
+        if (post is null) return;
+        await Api.DeleteCommentAsync(cid);
+        comments = await Api.GetCommentsAsync(post.Id) ?? new();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // --- Edit state ---
+    private bool editVisible;
+    private CreateUpdateBlogPostDto form = new();
+    private bool isPublishedSwitch;
+    private IReadOnlyList<Guid> selectedTagIds = Array.Empty<Guid>();
+
+    private Task OpenEdit()
+    {
+        if (post is null) return Task.CompletedTask;
+
+        // mevcut posttan forma taşı
+        form = new CreateUpdateBlogPostDto
+        {
+            Title = post.Title,
+            Content = post.Content,
+            AuthorId = post.AuthorId,
+            TagIds = post.BlogPostTags.Select(t => t.Id).ToList(),
+            IsPublished = post.IsPublished
+        };
+
+        isPublishedSwitch = post.IsPublished;
+        selectedTagIds = form.TagIds; // IReadOnlyList<Guid> kabul eder
+
+        editVisible = true;
+
+        return Task.CompletedTask;
+    }
+
+    private async Task SaveEdit()
+    {
+        if (post is null) return;
+
+        // basit doğrulama
+        if (string.IsNullOrWhiteSpace(form.Title) || string.IsNullOrWhiteSpace(form.Content))
+            return;
+
+        // Author değişmeyecek!
+        form.AuthorId = post.AuthorId;     // güvence olsun diye tekrar sabitliyoruz
+        form.IsPublished = isPublishedSwitch; // switch’ten geliyor
+        form.TagIds = selectedTagIds?.ToList() ?? new();
+
+        await Api.UpdateAsync(post.Id, form);               // sonucu kullanma
+        post = await Api.GetAsync(post.Id) ?? post;         // yeniden fetch
+        isPublishedSwitch = post.IsPublished;
+
+        editVisible = false;
+        StateHasChanged();
+    }
+
+    private Task OnSelectedTagsChanged(IReadOnlyList<Guid> values)
+    {
+        selectedTagIds = values ?? Array.Empty<Guid>();
+        form.TagIds = selectedTagIds.ToList(); // form.TagIds'ı güncelle
+        return Task.CompletedTask;
+    }
+
+    private bool _disposed;
+    public void Dispose() => _disposed = true;
+
+    private async Task SafeRefreshUI()
+    {
+        if (_disposed) return;
+        await InvokeAsync(StateHasChanged);
+    }
+
+}

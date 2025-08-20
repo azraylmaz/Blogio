@@ -1,0 +1,80 @@
+﻿@page "/tags"
+@inject Services.BlogApi Api
+
+<PageTitle>Etiketler</PageTitle>
+
+<Card>
+    <CardBody>
+        <div class="d-flex gap-2 mb-3">
+            <TextEdit @bind-Text="newTag" Placeholder="Etiket adı..." />
+            <Button Color="Color.Primary" Clicked="@Add">Ekle</Button>
+        </div>
+
+        <DataGrid TItem="TagDto" Data="@tags" ShowPager="false">
+            <DataGridColumns>
+                <DataGridColumn TItem="TagDto" Field="@nameof(TagDto.Name)" Caption="Ad" />
+                <DataGridCommandColumn TItem="TagDto">
+                    <DisplayTemplate>
+                        @{
+                            var row = (TagDto)context;
+                        }
+                        <Button Size="Size.Small" Color="Color.Primary" Clicked="() => Edit(row)">Düzenle</Button>
+                        <Button Size="Size.Small" Color="Color.Danger" Class="ms-1" Clicked="() => Delete(row.Id)">Sil</Button>
+                    </DisplayTemplate>
+                </DataGridCommandColumn>
+            </DataGridColumns>
+        </DataGrid>
+    </CardBody>
+</Card>
+
+<Modal @bind-Visible="editVisible">
+    <ModalHeader>Etiketi Düzenle</ModalHeader>
+    <ModalBody>
+        <TextEdit @bind-Text="editName" />
+    </ModalBody>
+    <ModalFooter>
+        <Button Color="Color.Secondary" Clicked="() => editVisible=false">Vazgeç</Button>
+        <Button Color="Color.Primary" Clicked="@Save">Kaydet</Button>
+    </ModalFooter>
+</Modal>
+
+@code {
+    private List<TagDto> tags = new();
+    private string newTag = "";
+
+    private bool editVisible;
+    private Guid editId;
+    private string editName = "";
+
+    protected override async Task OnInitializedAsync()
+        => tags = await Api.GetAllTagsAsync() ?? new();
+
+    private async Task Add()
+    {
+        if (string.IsNullOrWhiteSpace(newTag)) return;
+        var res = await Api.CreateTagAsync(new CreateUpdateTagDto { Name = newTag.Trim() });
+        if (res is not null) tags.Add(res);
+        newTag = "";
+    }
+
+    private void Edit(TagDto t)
+    {
+        editId = t.Id;
+        editName = t.Name;
+        editVisible = true;
+    }
+
+    private async Task Save()
+    {
+        var res = await Api.UpdateTagAsync(editId, new CreateUpdateTagDto { Name = editName.Trim() });
+        var idx = tags.FindIndex(x => x.Id == editId);
+        if (idx >= 0 && res is not null) tags[idx] = res;
+        editVisible = false;
+    }
+
+    private async Task Delete(Guid id)
+    {
+        await Api.DeleteTagAsync(id);
+        tags = tags.Where(x => x.Id != id).ToList();
+    }
+}

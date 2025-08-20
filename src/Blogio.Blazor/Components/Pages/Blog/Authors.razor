@@ -1,0 +1,48 @@
+﻿@page "/authors"
+@using AuthorModel = Blogio.Blazor.Models.AuthorDto
+@inject Blogio.Blazor.Services.BlogApi Api
+
+<PageTitle>Authors</PageTitle>
+
+<Card>
+    <CardHeader><h5>Authors</h5></CardHeader>
+    <CardBody>
+        @if (authors.Count == 0)
+        {
+            <div>Author not found.</div>
+        }
+        else
+        {
+            <DataGrid TItem="AuthorModel" Data="@authors" ShowPager="false" Responsive="true">
+                <DataGridColumns>
+                    <DataGridColumn TItem="AuthorModel" Field="@nameof(AuthorModel.UserName)" Caption="User" />
+                    <DataGridColumn TItem="AuthorModel" Caption="Name Surname">
+                        <DisplayTemplate Context="a">
+                            @((!string.IsNullOrWhiteSpace(a.Name) ? $"{a.Name} {a.Surname}" : "-"))
+                        </DisplayTemplate>
+                    </DataGridColumn>
+                    <DataGridColumn TItem="AuthorModel" Field="@nameof(AuthorModel.Email)" Caption="E-mail" />
+                    <DataGridColumn TItem="AuthorModel" Field="@nameof(AuthorModel.PostCount)" Caption="Post Count" />
+                    <DataGridColumn TItem="AuthorModel" Caption="">
+                        <DisplayTemplate Context="a">
+                            <Button Size="Size.Small" Color="Color.Light"
+                                    Clicked="@(() => NavToAuthorPosts(a.Id))">
+                                This author's posts: 
+                            </Button>
+                        </DisplayTemplate>
+                    </DataGridColumn>
+                </DataGridColumns>
+            </DataGrid>
+        }
+    </CardBody>
+</Card>
+
+@code {
+    private List<Blogio.Blazor.Models.AuthorDto> authors = new();
+
+    protected override async Task OnInitializedAsync()
+        => authors = await Api.GetAuthorsAsync() ?? new();
+
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+    private void NavToAuthorPosts(Guid id) => Nav.NavigateTo($"/blog?authorId={id}");
+}

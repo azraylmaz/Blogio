@@ -1,0 +1,15 @@
+body {
+    
+}
+
+:root .lpx-brand-logo {
+    --lpx-logo: url('/images/logo/leptonx/logo-light.png');
+    --lpx-logo-icon: url('/images/logo/leptonx/logo-light-thumbnail.png');
+}
+
+.modal-dialog {
+    max-width: 820px;
+    margin: 2.5rem auto;
+}
+
+
