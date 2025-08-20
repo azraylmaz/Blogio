@@ -10,6 +10,8 @@ namespace Blogio.Blog
     public class CommentDto : AuditedEntityDto<Guid>
     {
         public string Text { get; set; }
+
+
         public Guid BlogPostId { get; set; }
         public string? CreatorUserName { get; set; }
     }
