@@ -15,11 +15,6 @@ namespace Blogio.Blog
         {
         }
 
-        public TaskCreationOptions CreateBlogPostAsync(BlogPost blogPost)
-        {
-            throw new NotImplementedException();
-        }
-
         public Task DeleteBlogPostAsync(Guid id)
         {
             throw new NotImplementedException();
@@ -36,6 +31,11 @@ namespace Blogio.Blog
         }
 
         public Task UpdateBlogPostAsync(BlogPost blogPost)
+        {
+            throw new NotImplementedException();
+        }
+
+        Task IBlogRepository.CreateBlogPostAsync(BlogPost blogPost)
         {
             throw new NotImplementedException();
         }

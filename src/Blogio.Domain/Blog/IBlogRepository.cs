@@ -11,7 +11,7 @@ namespace Blogio.Blog
     {
         Task<List<BlogPost>> GetBlogPostsAsync();
         Task<BlogPost> GetBlogPostByIdAsync(Guid id);
-        TaskCreationOptions CreateBlogPostAsync(BlogPost blogPost);
+        Task CreateBlogPostAsync(BlogPost blogPost);
         Task UpdateBlogPostAsync(BlogPost blogPost);
         Task DeleteBlogPostAsync(Guid id);
       

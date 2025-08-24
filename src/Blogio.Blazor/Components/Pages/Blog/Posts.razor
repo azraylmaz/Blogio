@@ -63,7 +63,7 @@
                             </DisplayTemplate>
                         </DataGridColumn>
                     </Authorized>
-                    </AuthorizeView>/>
+                    </AuthorizeView>
 
                 <DataGridCommandColumn TItem="BlogPostListItemDto">
                     <DisplayTemplate Context="row">
@@ -97,17 +97,13 @@
                     <Authorized>
                         <Field>
                             <FieldLabel>Published</FieldLabel>
-                                    <Switch @bind-Checked="publishedOnly"
-                                            Changed="@(async (bool _) => await Search())"
-                                            CheckedText="Only Published"
-                                            UncheckedText="All" />
+                            <Switch Checked="@publishedOnly"
+                                    CheckedChanged="@(async (bool v) => { publishedOnly = v; await Search(); })"
+                                    CheckedText="Only Published"
+                                    UncheckedText="All" />
                         </Field>
                     </Authorized>
                 </AuthorizeView>
-
-
-
-
                 <Field Class="mt-2">
                     <FieldLabel>Tag</FieldLabel>
                     <Select TValue="Guid?"

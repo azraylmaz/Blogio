@@ -62,6 +62,8 @@ public class BlogioDbContext :
     public DbSet<Comment> Comments { get; set; }
     public DbSet<Tag> Tags { get; set; }
     public DbSet<BlogPostTag> BlogPostTags { get; set; }
+    public DbSet<BlogPostLike> BlogPostLikes { get; set; } 
+
 
     public BlogioDbContext(DbContextOptions<BlogioDbContext> options)
         : base(options)
@@ -113,5 +115,16 @@ public class BlogioDbContext :
             .HasOne(pt => pt.Tag)
             .WithMany(t => t.BlogPostTags)
             .HasForeignKey(pt => pt.TagId);
+
+        // OnModelCreating:
+        builder.Entity<BlogPostLike>(b =>
+        {
+            b.ToTable("BlogPostLikes");              // tablo adını sabitle
+            b.HasKey(x => x.Id);
+            b.HasIndex(x => new { x.BlogPostId, x.UserId }).IsUnique();
+            b.Property(x => x.BlogPostId).IsRequired();
+            b.Property(x => x.UserId).IsRequired();
+        });
+
     }
 }

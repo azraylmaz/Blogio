@@ -1,8 +1,11 @@
 ﻿@page "/blog/{id:guid}"
 @inject Services.BlogApi Api
 @inject NavigationManager Nav
-@using AuthorModel = Blogio.Blazor.Models.AuthorDto
+@using C = Blogio.Blog
+@using M = Blogio.Blazor.Models
 @using Microsoft.AspNetCore.Components.Authorization
+@inject Blogio.Blog.IBlogAppService AppSvc
+
 
 
 <PageTitle>Blog Post</PageTitle>
@@ -103,15 +106,13 @@ else
                         <div class="d-flex align-items-end gap-2">
                             <!-- Like grubu -->
                             <div class="d-flex flex-column align-items-center me-2">
-                                <Button Type="ButtonType.Button"
-                                        Size="Size.Small"
-                                        Color="Color.Success"
-                                        Outline
-                                        Class="px-2 py-1"
-                                        Clicked="Like">
+                                <Button Size="Size.Small"
+                                        Color="@(likedByMe ? Color.Dark : Color.Success)"
+                                        Clicked="@(likedByMe ? (() => Unlike(post.Id)) : (() => Like(post.Id)))">
                                     <Icon Name="IconName.ThumbsUp" class="me-1" />
-                                    Like (@post!.LikeCount)
+                                    @(likedByMe ? $"Unlike ({post!.LikeCount})" : $"Like ({post!.LikeCount})")
                                 </Button>
+
                             </div>
 
                             <!-- EDIT (Unpublish/Publish'ten önce) -->
@@ -163,15 +164,19 @@ else
                                                 {
                                                     @c.CreatorUserName
                                                 }
-                                                @if (c.CreationTime != null)
+                                                @if (c.CreationTime != default)
                                                 {
-                                                    <text> · @c.CreationTime.Value.ToLocalTime().ToString("g")</text>
+                                                    <text> · @c.CreationTime.ToLocalTime().ToString("g")</text>
                                                 }
                                             </div>
                                         </div>
-                                        <Button Size="Size.Small" Color="Color.Light" Clicked="() => DeleteComment(c.Id)">
-                                            Delete
-                                        </Button>
+                                        <AuthorizeView Roles="admin">
+                                            <Authorized>
+                                                 <Button Size="Size.Small" Color="Color.Light" Clicked="() => DeleteComment(c.Id)">
+                                                        Delete
+                                                 </Button>
+                                            </Authorized>
+                                        </AuthorizeView>
                                     </div>
                                 </ListGroupItem>
                             }
@@ -262,24 +267,31 @@ else
 @code {
     [Parameter] public Guid id { get; set; }
 
-    private BlogPostDto? post;
-    private List<CommentDto> comments = new();
+    private M.BlogPostDto? post;
+    private List<C.CommentDto> comments = new();
     private string newComment = "";
 
-    private AuthorModel? author;
-    private List<BlogPostListItemDto> otherPosts = new();
+    private M.AuthorDto? author;
+    private List<M.BlogPostListItemDto> otherPosts = new();
 
-    private List<TagDto> tags = new();
-    private List<AuthorModel> authors = new();
+    private List<M.TagDto> tags = new();
+    private List<M.AuthorDto> authors = new();
 
 
     [CascadingParameter] private Task<AuthenticationState> AuthTask { get; set; } = default!;
     private bool _canManage;
+
     // --- OnParametersSetAsync: Sayfa yüklendiğinde veya parametreler değiştiğinde çağrılır
     protected override async Task OnParametersSetAsync()
     {
         var auth = await AuthTask;
         var user = auth.User;
+        try { likedByMe = await AppSvc.IsLikedByMeAsync(id); }
+        catch { likedByMe = false; }
+
+        isAuthenticated = user.Identity?.IsAuthenticated == true;
+
+
         _canManage = user.IsInRole("admin") || user.IsInRole("author");
 
         if (id == Guid.Empty) return;
@@ -288,15 +300,33 @@ else
         post = await Api.GetAsync(id);
         if (post is null) return;
 
+        if (isAuthenticated)
+        {
+            try
+            {
+                likedByMe = await Api.IsLikedByMeAsync(id);
+            }
+            catch
+            {
+                likedByMe = false; // beklenmedik hata olursa da sayfayı aç
+            }
+        }
+        else
+        {
+            likedByMe = false;
+        }
+
+
         // Yayında değilse ve yönetemiyorsa -> uzaklaştır
         if (!post.IsPublished && !_canManage)
         {
             Nav.NavigateTo("/blog");
             return;
         }
+        
+        var clist = await AppSvc.GetCommentsAsync(id);
+        comments = clist.Items?.ToList() ?? new();
 
-        // 2) Yorumlar (hata atmasın)
-        comments = await Api.GetCommentsAsync(id) ?? new();
 
         // 3) Yazar bilgisi (liste içinden bul)
         authors = await Api.GetAuthorsAsync() ?? new();
@@ -319,16 +349,54 @@ else
         tags = await Api.GetAllTagsAsync() ?? new();
     }
 
-    private static string DisplayAuthorName(AuthorModel a)
-        => !string.IsNullOrWhiteSpace(a.Name) ? $"{a.Name} {a.Surname}" : a.UserName;
+    private static string DisplayAuthorName(M.AuthorDto? a)
+    => a is null ? string.Empty
+                 : (!string.IsNullOrWhiteSpace(a.Name) ? $"{a.Name} {a.Surname}" : a.UserName);
+    
+    private bool isAuthenticated;
+    private bool likedByMe;
 
-    private async Task Like()
+    private async Task Like(Guid id)
     {
-        if (post is null) return;
-        post.LikeCount = await Api.LikeAsync(post.Id);   // int dönüyor
-        await InvokeAsync(StateHasChanged);
+        if (!isAuthenticated)
+        {
+            // ABP varsayılan giriş yolu
+            var ret = Uri.EscapeDataString(Nav.ToBaseRelativePath(Nav.Uri));
+            Nav.NavigateTo($"/Account/Login?returnUrl=/{ret}", forceLoad: true);
+            return;
+        }
+
+        try
+        {
+            post!.LikeCount = await AppSvc.LikeAsync(id);
+            likedByMe = true;      // toggle
+            StateHasChanged();
+        }
+        catch (HttpRequestException ex)
+        {
+            // istersen 401 için de aynı yönlendirmeyi yap
+        }
     }
 
+    private async Task Unlike(Guid id)
+    {
+        if (!isAuthenticated)
+        {
+            var ret = Uri.EscapeDataString(Nav.ToBaseRelativePath(Nav.Uri));
+            Nav.NavigateTo($"/Account/Login?returnUrl=/{ret}", forceLoad: true);
+            return;
+        }
+
+        try
+        {
+            post!.LikeCount = await AppSvc.UnlikeAsync(id);
+            likedByMe = false;     // toggle
+            StateHasChanged();
+        }
+        catch (HttpRequestException ex)
+        {
+        }
+    }
 
     private async Task Publish()
     {
@@ -349,8 +417,16 @@ else
     private async Task AddComment()
     {
         if (post is null || string.IsNullOrWhiteSpace(newComment)) return;
-        await Api.AddCommentAsync(new CreateUpdateCommentDto { BlogPostId = post.Id, Text = newComment });
-        comments = await Api.GetCommentsAsync(post.Id) ?? new();
+
+        await AppSvc.AddCommentAsync(new C.CreateUpdateCommentDto
+        {
+            BlogPostId = post.Id,
+            Text = newComment
+        });
+
+        var list = await AppSvc.GetCommentsAsync(post.Id);
+        comments = list.Items?.ToList() ?? new List<C.CommentDto>();
+
         newComment = "";
         await InvokeAsync(StateHasChanged);
     }
@@ -358,14 +434,15 @@ else
     private async Task DeleteComment(Guid cid)
     {
         if (post is null) return;
-        await Api.DeleteCommentAsync(cid);
-        comments = await Api.GetCommentsAsync(post.Id) ?? new();
+        await AppSvc.DeleteCommentAsync(cid);
+        var list = await AppSvc.GetCommentsAsync(post.Id);
+        comments = list.Items?.ToList() ?? new List<C.CommentDto>();
         await InvokeAsync(StateHasChanged);
     }
 
     // --- Edit state ---
     private bool editVisible;
-    private CreateUpdateBlogPostDto form = new();
+    private M.CreateUpdateBlogPostDto form = new();
     private bool isPublishedSwitch;
     private IReadOnlyList<Guid> selectedTagIds = Array.Empty<Guid>();
 
@@ -374,7 +451,7 @@ else
         if (post is null) return Task.CompletedTask;
 
         // mevcut posttan forma taşı
-        form = new CreateUpdateBlogPostDto
+        form = new M.CreateUpdateBlogPostDto
         {
             Title = post.Title,
             Content = post.Content,

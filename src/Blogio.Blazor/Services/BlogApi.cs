@@ -65,26 +65,47 @@ public class BlogApi
     public async Task UnpublishAsync(Guid id)
         => (await _http.PostAsync($"/api/app/blog/{id}/unpublish", null)).EnsureSuccessStatusCode();
 
+
+    // ----- Likes ----------
+
     public async Task<int> LikeAsync(Guid id)
     {
         var res = await _http.PostAsync($"/api/app/blog/{id}/like", null);
         res.EnsureSuccessStatusCode();
 
-        // Bazı servisler application/json int döner
-        if ((res.Content.Headers.ContentType?.MediaType ?? "").Contains("json"))
+        var media = res.Content.Headers.ContentType?.MediaType ?? "";
+        if (media.Contains("json", StringComparison.OrdinalIgnoreCase))
             return await res.Content.ReadFromJsonAsync<int>();
 
-        // İçerik boşsa sayımı post’u tazeleyerek al
-        return (await GetAsync(id))?.LikeCount ?? 0;
+        var s = await res.Content.ReadAsStringAsync();
+        return int.TryParse(s, out var v) ? v : 0;
     }
 
     public async Task<int> UnlikeAsync(Guid id)
     {
         var res = await _http.PostAsync($"/api/app/blog/{id}/unlike", null);
         res.EnsureSuccessStatusCode();
-        if ((res.Content.Headers.ContentType?.MediaType ?? "").Contains("json"))
+
+        var media = res.Content.Headers.ContentType?.MediaType ?? "";
+        if (media.Contains("json", StringComparison.OrdinalIgnoreCase))
             return await res.Content.ReadFromJsonAsync<int>();
-        return (await GetAsync(id))?.LikeCount ?? 0;
+
+        var s = await res.Content.ReadAsStringAsync();
+        return int.TryParse(s, out var v) ? v : 0;
+
+    }
+
+    public async Task<bool> IsLikedByMeAsync(Guid id)
+    {
+        var res = await _http.GetAsync($"/api/app/blog/is-liked-by-me?id={id}");
+        res.EnsureSuccessStatusCode();
+
+        var ct = res.Content.Headers.ContentType?.MediaType ?? "";
+        if (ct.Contains("json", StringComparison.OrdinalIgnoreCase))
+            return await res.Content.ReadFromJsonAsync<bool>();
+
+        var s = (await res.Content.ReadAsStringAsync()).Trim('"', ' ', '\r', '\n');
+        return bool.TryParse(s, out var b) && b;
     }
 
 

@@ -3,6 +3,7 @@ using System;
 using Blogio.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Volo.Abp.EntityFrameworkCore;
@@ -12,9 +13,11 @@ using Volo.Abp.EntityFrameworkCore;
 namespace Blogio.Migrations
 {
     [DbContext(typeof(BlogioDbContext))]
-    partial class BlogioDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250821191727_UpdateLikes")]
+    partial class UpdateLikes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -96,6 +99,7 @@ namespace Blogio.Migrations
             modelBuilder.Entity("Blogio.Blog.BlogPostLike", b =>
                 {
                     b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("BlogPostId")
@@ -109,7 +113,7 @@ namespace Blogio.Migrations
                     b.HasIndex("BlogPostId", "UserId")
                         .IsUnique();
 
-                    b.ToTable("BlogPostLikes");
+                    b.ToTable("BlogPostLike");
                 });
 
             modelBuilder.Entity("Blogio.Blog.BlogPostTag", b =>

@@ -14,12 +14,6 @@ public class BlogioApplicationAutoMapperProfile : Profile
         // Create/Update -> Entity: validasyon gevşek (unmapped dest. members sorun olmaz)
         CreateMap<CreateUpdateTagDto, Tag>(MemberList.None);
 
-        // ----- Comment -----
-        CreateMap<Comment, CommentDto>();
-
-        //CreateMap<CreateUpdateCommentDto, Comment>(MemberList.None)
-        //    .ForMember(d => d.BlogPost, opt => opt.Ignore()); // nav prop
-
         // ----- BlogPost -----
         CreateMap<BlogPost, BlogPostListItemDto>()
             .ForMember(d => d.CommentCount, opt => opt.MapFrom(s => s.Comments.Count));

@@ -1,5 +1,6 @@
 ﻿using Blogio.Blazor.Components.Pages.Blog;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;         // ToListAsync için (istersen AsyncExecuter da kullanıyoruz)
 using System;
 using System.Collections.Generic;
@@ -27,6 +28,8 @@ namespace Blogio.Blog
         private readonly IRepository<BlogPostTag> _blogPostTagRepository;
         private readonly IdentityUserManager _userManager;
         private readonly IRepository<IdentityUser, Guid> _userRepository;
+        private readonly IRepository<BlogPostLike, Guid> _likeRepository;
+
 
         public BlogAppService(
             IBlogRepository blogRepository,
@@ -34,7 +37,8 @@ namespace Blogio.Blog
             IRepository<Tag, Guid> tagRepository,
             IRepository<BlogPostTag> blogPostTagRepository,
             IdentityUserManager userManager,
-            IRepository<IdentityUser, Guid> userRepository)
+            IRepository<IdentityUser, Guid> userRepository,
+            IRepository<BlogPostLike, Guid> likeRepository)
         {
             _blogRepository = blogRepository;
             _commentRepository = commentRepository;
@@ -42,6 +46,7 @@ namespace Blogio.Blog
             _blogPostTagRepository = blogPostTagRepository;
             _userManager = userManager;
             _userRepository = userRepository;
+            _likeRepository = likeRepository;
         }
 
         private bool CanManage =>
@@ -223,25 +228,61 @@ namespace Blogio.Blog
             }
         }
 
+        // ---------- Likes -------------
+
+        [Authorize]
         public async Task<int> LikeAsync(Guid id)
         {
-            var entity = await _blogRepository.GetAsync(id);
-            entity.LikeCount++;
-            await _blogRepository.UpdateAsync(entity, autoSave: true);
-            return entity.LikeCount;
+            var me = CurrentUser.Id ?? throw new AbpAuthorizationException();
+
+            // daha önce beğenmişse ekleme
+            var exists = await _likeRepository.AnyAsync(x => x.BlogPostId == id && x.UserId == me);
+            if (!exists)
+            {
+                await _likeRepository.InsertAsync(
+                    new BlogPostLike(GuidGenerator.Create(), id, me),
+                    autoSave: true
+                );
+            }
+
+            // sayıyı yeniden hesapla ve aggregate'ı eşitle
+            var count = await _likeRepository.CountAsync(x => x.BlogPostId == id);
+            var post = await _blogRepository.GetAsync(id);
+            if (post.LikeCount != count)
+            {
+                post.LikeCount = count;
+                await _blogRepository.UpdateAsync(post, autoSave: true);
+            }
+
+            return count;
         }
 
+        [Authorize]
         public async Task<int> UnlikeAsync(Guid id)
         {
-            var entity = await _blogRepository.GetAsync(id);
-            if (entity.LikeCount > 0)
+            var me = CurrentUser.Id ?? throw new AbpAuthorizationException();
+
+            await _likeRepository.DeleteAsync(x => x.BlogPostId == id && x.UserId == me);
+
+            var count = await _likeRepository.CountAsync(x => x.BlogPostId == id);
+            var post = await _blogRepository.GetAsync(id);
+            if (post.LikeCount != count)
             {
-                entity.LikeCount--;
-                await _blogRepository.UpdateAsync(entity, autoSave: true);
+                post.LikeCount = count;
+                await _blogRepository.UpdateAsync(post, autoSave: true);
             }
-            return entity.LikeCount;
+
+            return count;
         }
 
+        [AllowAnonymous] // anonim erişime izin ver
+        [HttpGet("is-liked-by-me")]
+        public async Task<bool> IsLikedByMeAsync(Guid id)
+        {
+            var me = CurrentUser.Id;
+            if (!me.HasValue) return false; // login değilse false
+            return await _likeRepository.AnyAsync(x => x.BlogPostId == id && x.UserId == me.Value);
+        }
 
 
         // -------------------- Comments --------------------

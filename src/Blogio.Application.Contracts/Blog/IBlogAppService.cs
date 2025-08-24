@@ -22,10 +22,13 @@ namespace Blogio.Blog
         // --- State & Counters ---
         Task PublishAsync(Guid id);
         Task UnpublishAsync(Guid id);
-        /// <summary>Beğeni sayısını 1 artırır ve yeni sayıyı döner.</summary>
+
+
+        // -------- Likes ---------
         Task<int> LikeAsync(Guid id);
-        /// <summary>Beğeni sayısını 1 azaltır (0’ın altına düşürme) ve yeni sayıyı döner.</summary>
         Task<int> UnlikeAsync(Guid id);
+        Task<bool> IsLikedByMeAsync(Guid id);
+
 
 
         // --- Comments ---
