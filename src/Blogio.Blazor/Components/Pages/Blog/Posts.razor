@@ -1,9 +1,10 @@
 ﻿@page "/blog"
-@using Blogio.Blazor.Models
-@inject Services.BlogApi Api
 @inject NavigationManager Nav
-@using AuthorModel = Blogio.Blazor.Models.AuthorDto
+@using C = Blogio.Blog
+@inject C.IBlogAppService AppSvc
+@using AuthorModel = Blogio.Blog.AuthorDto
 @using Microsoft.AspNetCore.Components.Authorization
+@using Blazorise.DataGrid
 
 <PageTitle>Blog Posts</PageTitle>
 
@@ -11,19 +12,22 @@
 <Row Class="mb-3">
     <Column>
         <InputGroup Size="Size.Large">
-            <TextEdit @bind-Text="filter.Filter" Placeholder="Title/Content..." />
-            <InputGroupAppend>
-                <Button Color="Color.Primary" Clicked="Search">
-                    <Icon Name="IconName.Search" Class="me-1" /> Search
-                </Button>
-            </InputGroupAppend>
+            <TextEdit @bind-Text="searchText"
+                  Immediate="true"
+                  Placeholder="Title/Content..."
+                  @onkeydown="OnSearchKeyDown" />
+        <InputGroupAppend>
+    <Button Color="Color.Primary" Clicked="TriggerSearch">
+        <Icon Name="IconName.Search" class="me-1" /> Search
+    </Button>
+</InputGroupAppend>
         </InputGroup>
     </Column>
 </Row>
 
 <Row>
     <Column md="12" lg="9" xl="10" xxl="10" Style="flex: 0 0 80%; max-width: 80%;">
-        <DataGrid TItem="BlogPostListItemDto"
+        <DataGrid TItem="C.BlogPostListItemDto"
                   @ref="grid"
                   Data="@items"
                   TotalItems="@total"
@@ -34,8 +38,8 @@
                   ShowCaptions="true"
                   Editable="false">
             <DataGridColumns>
-                <DataGridColumn TItem="BlogPostListItemDto"
-                                Field="@nameof(BlogPostListItemDto.Title)"
+                <DataGridColumn TItem="C.BlogPostListItemDto"
+                                Field="@nameof(C.BlogPostListItemDto.Title)"
                                 Caption="Title">
                     <DisplayTemplate Context="row">
                         <a href="@($"/blog/{row.Id}")"
@@ -45,12 +49,12 @@
                         </a>
                     </DisplayTemplate>
                 </DataGridColumn>
-                <DataGridColumn TItem="BlogPostListItemDto" Field="@nameof(BlogPostListItemDto.CommentCount)" Caption="Comment" />
-                <DataGridColumn TItem="BlogPostListItemDto" Field="@nameof(BlogPostListItemDto.LikeCount)" Caption="Like" />
+                <DataGridColumn TItem="C.BlogPostListItemDto" Field="@nameof(C.BlogPostListItemDto.CommentCount)" Caption="Comment" />
+                <DataGridColumn TItem="C.BlogPostListItemDto" Field="@nameof(C.BlogPostListItemDto.LikeCount)" Caption="Like" />
                 
                 <AuthorizeView Roles="admin,author">
                     <Authorized>
-                        <DataGridColumn TItem="BlogPostListItemDto" Field="@nameof(BlogPostListItemDto.IsPublished)" Caption="Published">
+                        <DataGridColumn TItem="C.BlogPostListItemDto" Field="@nameof(C.BlogPostListItemDto.IsPublished)" Caption="Published">
                             <DisplayTemplate Context="row">
                                 @if (row.IsPublished)
                                 {
@@ -65,7 +69,7 @@
                     </Authorized>
                     </AuthorizeView>
 
-                <DataGridCommandColumn TItem="BlogPostListItemDto">
+                <DataGridCommandColumn TItem="C.BlogPostListItemDto">
                     <DisplayTemplate Context="row">
                         <Button Size="Size.Small" Color="Color.Light" Clicked="() => GoDetails(row.Id)">Details</Button>
                         <Button Size="Size.Small" Color="Color.Primary" Class="ms-1" Clicked="() => Edit(row.Id)">Edit</Button>
@@ -108,7 +112,7 @@
                     <FieldLabel>Tag</FieldLabel>
                     <Select TValue="Guid?"
                             SelectedValue="@selectedTagId"
-                            SelectedValueChanged="@( v => { selectedTagId = v; return Search(); } )">
+                            SelectedValueChanged="OnTagFilterChanged">
                         <SelectItem Value="@((Guid?)null)">— All —</SelectItem>
                         @foreach (var t in tags)
                         {
@@ -121,7 +125,7 @@
                     <FieldLabel>Author</FieldLabel>
                     <Select TValue="Guid?"
                             SelectedValue="@selectedAuthorId"
-                            SelectedValueChanged="@( v => { selectedAuthorId = v; return Search(); } )">
+                            SelectedValueChanged="OnAuthorFilterChanged">
                         <SelectItem Value="@((Guid?)null)">— All —</SelectItem>
                         @foreach (var a in authors)
                         {
@@ -181,40 +185,60 @@
                                     <Field>
                                         <FieldLabel>Content</FieldLabel>
                                         <Validation Validator="@ValidateContent">
-                                            <MemoEdit @bind-Text="form.Content" Rows="8" Placeholder="Content..."
-                                                      Class="form-control bg-white border-0" />
+                                            <RichTextEdit @bind-HTML="form.Content" Rows="8" Placeholder="Content..."
+                                                      Class="form-control bg-white border-0" Style="height: 360px"/>
+                                                      <RichTextEditToolbar />
+                                                      <RichTextEditContent />
                                         </Validation>
                                     </Field>
                                 </div>
 
                                 <div class="col-12 col-md-6 px-4">
+                                    <br />
                                     <Field>
                                         <FieldLabel>Author</FieldLabel>
-                                        <Validation Validator="@ValidateAuthorRequired">
-                                            <Select TValue="Guid?" @bind-SelectedValue="selectedAuthorIdInForm"
-                                                    Class="form-select bg-white border-0">
-                                                <SelectItem Value="@((Guid?)null)">— Choose Author —</SelectItem>
-                                                @foreach (var a in authors)
-                                                {
-                                                    <SelectItem Value="@a.Id">@DisplayAuthorName(a)</SelectItem>
-                                                }
-                                            </Select>
-                                        </Validation>
+                                        @if (_isAdmin)
+                                        {
+                                            <Validation Validator="@ValidateAuthorRequired">
+                                                <Select TValue="Guid?" @bind-SelectedValue="selectedAuthorIdInForm"
+                                                        Class="form-select bg-white border-0">
+                                                    <SelectItem Value="@((Guid?)null)">— Choose Author —</SelectItem>
+                                                    @foreach (var a in authors)
+                                                    {
+                                                        <SelectItem Value="@a.Id">@DisplayAuthorName(a)</SelectItem>
+                                                    }
+                                                </Select>
+                                            </Validation>
+                                        }
+                                        else
+                                        {
+                                            <TextEdit ReadOnly="true" Plaintext="true"
+                                                      Text="@(_myAuthorDisplay ?? "—")" />
+                                        }
                                     </Field>
                                 </div>
 
                                 <div class="col-12 col-md-6 px-4">
+                                    <br />
                                     <Field>
-                                        <FieldLabel>Tag</FieldLabel>
+                                        <FieldLabel>Tags</FieldLabel>
+
+                                        <!-- Var olan tag’lerden çoklu seçim -->
                                         <Select TValue="Guid" Multiple="true"
                                                 SelectedValues="@selectedTagIds"
-                                                SelectedValuesChanged="@( (IReadOnlyList<Guid> vals) => OnSelectedTagsChanged(vals) )"
+                                                SelectedValuesChanged="OnSelectedTagsChanged"
                                                 Class="form-select bg-white border-0">
                                             @foreach (var t in tags)
                                             {
                                                 <SelectItem Value="@t.Id">@t.Name</SelectItem>
                                             }
                                         </Select>
+
+                                        <!-- Listede yoksa yeni tag ekleme -->
+                                        <div class="d-flex align-items-center gap-2 mt-2">
+                                            <TextEdit @bind-Text="newTagName" Placeholder="New tag..." />
+                                            <Button Size="Size.Small" Color="Color.Success" Clicked="AddNewTag">Add</Button>
+                                        </div>
                                         <div class="form-text text-secondary mt-1">
                                             For multiple: hold Ctrl / ⌘
                                         </div>
@@ -249,20 +273,48 @@
     private int total;
 
 
-    private List<BlogPostListItemDto> items = new();
-    private List<TagDto> tags = new();
+    private List<C.BlogPostListItemDto> items = new();
+    private List<C.TagDto> tags = new();
     private List<AuthorModel> authors = new();
 
-    private GetBlogPostListDto filter = new();
+    private C.GetBlogPostListDto filter = new();
     private bool publishedOnly;
     private Guid? selectedTagId;
 
     // edit modal state
     private bool editVisible;
     private Guid? editingId;
-    private CreateUpdateBlogPostDto form = new();
+    private C.CreateUpdateBlogPostDto form = new();
     private bool isPublishedSwitch;
     private Validations? formValidations;
+
+    private string newTagName = string.Empty;
+
+    private bool _isAdmin, _isAuthor;
+    private Guid? _myId;
+    private string? _myAuthorDisplay;   // modalda okunacak ad
+
+    private string searchText = string.Empty;
+
+    private async Task TriggerSearch()
+    {
+        filter.Filter = (searchText ?? string.Empty).Trim();
+        await Search();              // grid.CurrentPage=1 + Reload
+    }
+
+    private async Task OnSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await TriggerSearch();
+    }
+
+    private static Guid? TryGetUserId(System.Security.Claims.ClaimsPrincipal user)
+    {
+        var s = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+              ?? user.FindFirst("sub")?.Value;
+        return Guid.TryParse(s, out var g) ? g : (Guid?)null;
+    }
+
 
     private Guid? selectedAuthorIdInForm; // modal yazar seçimi
     private static string DisplayAuthorName(AuthorModel a)
@@ -289,14 +341,33 @@
 
     // Etiket seçimi
     private IReadOnlyList<Guid> selectedTagIds = Array.Empty<Guid>();
-    private void OnSelectedTagsChanged(IReadOnlyList<Guid> values)
+    private Task OnSelectedTagsChanged(IReadOnlyList<Guid> values)
     {
         selectedTagIds = values ?? Array.Empty<Guid>();
-        form.TagIds = values?.ToList() ?? new();
+        form.TagIds = selectedTagIds.ToList();
+        return Task.CompletedTask;
     }
 
     private Guid? selectedAuthorId;
     [Parameter][SupplyParameterFromQuery] public Guid? authorId { get; set; }
+    [Parameter][SupplyParameterFromQuery] public Guid? tagId { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // query’den gelen tagId’yi uygula
+        if (tagId != selectedTagId)
+        {
+            selectedTagId = tagId;
+            await Search();             // grid.CurrentPage = 1 + Reload()
+        }
+
+        // (Vardı) query’den gelen authorId’yi uygula
+        if (authorId != selectedAuthorId)
+        {
+            selectedAuthorId = authorId;
+            await Search();
+        }
+    }
 
     [CascadingParameter] private Task<AuthenticationState> AuthTask { get; set; } = default!;
     private bool _canManage; // admin/author?
@@ -305,75 +376,83 @@
     {
         var auth = await AuthTask;
         var user = auth.User;
-        _canManage = user.IsInRole("admin") || user.IsInRole("author");
+
+        _isAdmin = user.IsInRole("admin");
+        _isAuthor = user.IsInRole("author");
+        _myId = TryGetUserId(user);
 
         // normal kullanıcılar için her zaman published
-        if (!_canManage) publishedOnly = true;
+        if (!(_isAdmin || _isAuthor)) publishedOnly = true;
 
-        tags = await Api.GetAllTagsAsync() ?? new();
-        authors = await Api.GetAuthorsAsync() ?? new();
+        tags = (await AppSvc.GetAllTagsAsync()).Items?.ToList() ?? new();
+        authors = (await AppSvc.GetAuthorsAsync()).Items?.ToList() ?? new();
+
+        // kendi görünen adın (modalda plaintext göstereceğiz)
+        _myAuthorDisplay = authors.FirstOrDefault(a => a.Id == _myId) is var me && me != null
+            ? (!string.IsNullOrWhiteSpace(me.Name) ? $"{me.Name} {me.Surname}" : me.UserName)
+            : null;
 
         if (authorId.HasValue)
             selectedAuthorId = authorId;
     }
 
-    private async Task OnReadData(DataGridReadDataEventArgs<BlogPostListItemDto> e)
+    private async Task OnReadData(DataGridReadDataEventArgs<C.BlogPostListItemDto> e)
     {
         var page = e.Page <= 0 ? 1 : e.Page;
         var size = e.PageSize > 0 ? e.PageSize : pageSize;
 
-        filter.SkipCount = (page - 1) * size;
-        filter.MaxResultCount = size;
+        var req = new C.GetBlogPostListDto
+        {
+            SkipCount = (page - 1) * size,
+            MaxResultCount = size,
+            Filter = filter.Filter,
+            IsPublished = (_isAdmin || _isAuthor)
+                        ? (publishedOnly ? true : (bool?)null)  // admin/author “All” => null
+                        : true,
+            AuthorId = selectedAuthorId,
+            TagIds = selectedTagId is Guid g ? new List<Guid> { g } : null,
+            Sorting = "CreationTime desc"
+        };
 
-        // yönetebilenler için switch çalışsın, diğerleri için her zaman true
-        filter.IsPublished = _canManage ? (publishedOnly ? true : (bool?)null) : true;
-
-        filter.AuthorId = selectedAuthorId;
-        filter.TagIds = selectedTagId is Guid g ? new List<Guid> { g } : null;
-
-        var result = await Api.GetListAsync(filter);
-        items = result.Items;
+        var result = await AppSvc.GetListAsync(req);
+        items = result.Items?.ToList() ?? new();
         total = (int)result.TotalCount;
-    }
-
-    private DataGrid<BlogPostListItemDto>? grid;
-
-    private async Task Search()
-    {
-        if (grid is not null)
-            await grid.Reload();
-    }
-
-    private Task ClearFilters()
-    {
-        publishedOnly = false;
-        selectedTagId = null;
-        selectedAuthorId = null;
-        filter.Filter = string.Empty;
-        return Search();
     }
 
     private void CreateNew()
     {
         editingId = null;
-        form = new CreateUpdateBlogPostDto { Title = "", Content = "", TagIds = new() };
-        selectedAuthorIdInForm = null;
+        form = new C.CreateUpdateBlogPostDto { Title = "", Content = "", TagIds = new() };
+        if (_isAdmin)
+        {
+            selectedAuthorIdInForm = null;   // admin istediğini seçsin
+        }
+        else
+        {
+            // author ise kendisi sabit
+            selectedAuthorIdInForm = _myId;
+            form.AuthorId = _myId ?? Guid.Empty;
+        }
         isPublishedSwitch = false;
         editVisible = true;
     }
 
-    private async Task Edit(Guid id)
+    private async Task LoadToForm(Guid id)
     {
-        var dto = await Api.GetAsync(id);
+        var dto = await AppSvc.GetAsync(id);
         if (dto is null) return;
+
         editingId = id;
-        form = new CreateUpdateBlogPostDto
+        form = new C.CreateUpdateBlogPostDto
         {
             Title = dto.Title,
             Content = dto.Content,
             TagIds = dto.BlogPostTags.Select(t => t.Id).ToList(),
-            IsPublished = dto.IsPublished
+            IsPublished = dto.IsPublished,
+            AuthorId = dto.AuthorId
         };
+
+        selectedTagIds = form.TagIds;            // <— modal çoklu seçimi doldur
         selectedAuthorIdInForm = dto.AuthorId;
         isPublishedSwitch = dto.IsPublished;
         editVisible = true;
@@ -388,9 +467,9 @@
         form.IsPublished = isPublishedSwitch;
 
         if (editingId is null)
-            await Api.CreateAsync(form);
+            await AppSvc.CreateAsync(form);
         else
-            await Api.UpdateAsync(editingId.Value, form);
+            await AppSvc.UpdateAsync(editingId.Value, form);
 
         editVisible = false;
         await Search();
@@ -398,27 +477,91 @@
 
     private async Task Delete(Guid id)
     {
-        await Api.DeleteAsync(id);
+        await AppSvc.DeleteAsync(id);
         await Search();
     }
 
     private async Task Publish(Guid id)
     {
-        await Api.PublishAsync(id);
+        await AppSvc.PublishAsync(id);
         await Search();
     }
 
     private async Task Unpublish(Guid id)
     {
-        await Api.UnpublishAsync(id);
+        await AppSvc.UnpublishAsync(id);
         await Search();
     }
 
     private async Task Like(Guid id)
     {
-        await Api.LikeAsync(id);
+        await AppSvc.LikeAsync(id);
         await Search();
     }
 
     private void GoDetails(Guid id) => Nav.NavigateTo($"/blog/{id}");
+
+    private async Task AddNewTag()
+    {
+        var name = (newTagName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(name))
+            return;
+
+        // 1) Varsa tekrar oluşturma, sadece seçili listeye ekle
+        var existing = tags.FirstOrDefault(t =>
+            string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+
+        if (existing != null)
+        {
+            if (!selectedTagIds.Contains(existing.Id))
+                selectedTagIds = selectedTagIds.Concat(new[] { existing.Id }).ToArray();
+
+            form.TagIds = selectedTagIds.ToList();
+            newTagName = string.Empty;
+            return;
+        }
+
+        // 2) Yoksa servisle oluştur
+        var created = await AppSvc.CreateTagAsync(new C.CreateUpdateTagDto { Name = name });
+
+        // listeyi ve seçili değerleri güncelle
+        tags.Add(created);
+        selectedTagIds = selectedTagIds.Concat(new[] { created.Id }).ToArray();
+        form.TagIds = selectedTagIds.ToList();
+
+        newTagName = string.Empty;
+    }
+
+
+    private DataGrid<C.BlogPostListItemDto>? grid;
+
+    private async Task Search()
+    {
+        if (grid is null) return;
+        grid.CurrentPage = 1;          // <-- önemli
+        await grid.Reload();
+    }
+
+    private async Task OnTagFilterChanged(Guid? v)
+    {
+        selectedTagId = v;
+        await Search();
+    }
+
+    private async Task OnAuthorFilterChanged(Guid? v)
+    {
+        selectedAuthorId = v;
+        await Search();
+    }
+
+    private async Task ClearFilters()
+    {
+        publishedOnly = false;
+        selectedTagId = null;
+        selectedAuthorId = null;
+        filter.Filter = string.Empty;
+        await Search();                 // <-- await
+    }
+
+    private Task Edit(Guid id) => LoadToForm(id);
 }

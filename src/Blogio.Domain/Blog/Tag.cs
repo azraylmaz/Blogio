@@ -11,6 +11,8 @@ namespace Blogio.Blog
 
         // Many-to-many
         public ICollection<BlogPostTag> BlogPostTags { get; set; }
+        public ICollection<BlogPostDraftTag> DraftTags { get; set; }    
+        public ICollection<BlogPostVersionTag> VersionTags { get; set; } 
 
         public Tag() { }
 
@@ -18,6 +20,8 @@ namespace Blogio.Blog
         {
             Name = name;
             BlogPostTags = new List<BlogPostTag>();
+            DraftTags = new List<BlogPostDraftTag>();
+            VersionTags = new List<BlogPostVersionTag>();
         }
     }
 }

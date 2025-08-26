@@ -28,6 +28,12 @@ public class BlogioApplicationAutoMapperProfile : Profile
 
         CreateMap<Comment, CommentDto>()
             .ForMember(d => d.CreatorUserName, opt => opt.Ignore());
+
+        CreateMap<BlogPostDraft, BlogPostDraftDto>()
+                .ForMember(d => d.Tags, cfg => cfg.MapFrom(s => s.Tags.Select(t => t.Tag)));
+
+        CreateMap<BlogPostVersion, BlogPostVersionDto>()
+            .ForMember(d => d.Tags, cfg => cfg.MapFrom(s => s.BlogPostVersionTags.Select(t => t.Tag)));
     }
 }
 

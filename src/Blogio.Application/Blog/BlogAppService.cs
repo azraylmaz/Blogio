@@ -1,4 +1,4 @@
-﻿using Blogio.Blazor.Components.Pages.Blog;
+﻿
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;         // ToListAsync için (istersen AsyncExecuter da kullanıyoruz)
@@ -6,7 +6,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Dynamic.Core;
-using System.Text;
 using System.Threading.Tasks;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -15,7 +14,6 @@ using Volo.Abp.Authorization;
 using Volo.Abp.Domain.Entities;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Identity;
-using Volo.Abp.Users;
 
 
 namespace Blogio.Blog
@@ -29,6 +27,10 @@ namespace Blogio.Blog
         private readonly IdentityUserManager _userManager;
         private readonly IRepository<IdentityUser, Guid> _userRepository;
         private readonly IRepository<BlogPostLike, Guid> _likeRepository;
+        private readonly IRepository<BlogPostDraft, Guid> _draftRepository;
+        private readonly IRepository<BlogPostDraftTag, Guid> _draftTagRepository;
+        private readonly IRepository<BlogPostVersion, Guid> _versionRepository;
+        private readonly IRepository<BlogPostVersionTag, Guid> _versionTagRepository;
 
 
         public BlogAppService(
@@ -38,7 +40,11 @@ namespace Blogio.Blog
             IRepository<BlogPostTag> blogPostTagRepository,
             IdentityUserManager userManager,
             IRepository<IdentityUser, Guid> userRepository,
-            IRepository<BlogPostLike, Guid> likeRepository)
+            IRepository<BlogPostLike, Guid> likeRepository,
+            IRepository<BlogPostDraft, Guid> draftRepository,          
+            IRepository<BlogPostDraftTag, Guid> draftTagRepository,    
+            IRepository<BlogPostVersion, Guid> versionRepository,      
+            IRepository<BlogPostVersionTag, Guid> versionTagRepository)
         {
             _blogRepository = blogRepository;
             _commentRepository = commentRepository;
@@ -47,17 +53,29 @@ namespace Blogio.Blog
             _userManager = userManager;
             _userRepository = userRepository;
             _likeRepository = likeRepository;
+            _draftRepository = draftRepository;            
+            _draftTagRepository = draftTagRepository;      
+            _versionRepository = versionRepository;        
+            _versionTagRepository = versionTagRepository;
         }
 
-        private bool CanManage =>
-        CurrentUser.IsInRole("admin") || CurrentUser.IsInRole("author");
+        private Guid? Me => CurrentUser.Id;
+        private bool IsAdmin => CurrentUser.IsInRole("admin");
+        private bool IsAuthor => CurrentUser.IsInRole("author");
 
+        private bool CanManagePost(BlogPost p)
+            => IsAdmin || (IsAuthor && Me.HasValue && p.AuthorId == Me.Value);
 
         // --------- BlogPost ---------
         public async Task<BlogPostDto> GetAsync(Guid id)
         {
-            var query = await _blogRepository.WithDetailsAsync(); // repo’daki Include’ları içerir
-            var entity = await AsyncExecuter.FirstOrDefaultAsync(query.Where(p => p.Id == id));
+            var q = await _blogRepository.GetQueryableAsync();
+
+            var entity = await AsyncExecuter.FirstOrDefaultAsync(
+                q.Where(p => p.Id == id)
+                 .Include(p => p.BlogPostTags)
+                    .ThenInclude(j => j.Tag)   // <- ÖNEMLİ: Tag adları için
+            );
 
             if (entity == null)
                 throw new EntityNotFoundException(typeof(BlogPost), id);
@@ -92,6 +110,13 @@ namespace Blogio.Blog
             if (input.CreationTimeEnd.HasValue)
                 query = query.Where(p => p.CreationTime <= input.CreationTimeEnd.Value);
 
+            if (!IsAdmin)
+            {
+                var myId = Me ?? Guid.Empty;
+                // Herkese ait published + bana ait draft/published
+                query = query.Where(p => p.IsPublished || p.AuthorId == myId);
+            }
+
             // Total count
             var totalCount = await AsyncExecuter.CountAsync(query);
 
@@ -123,6 +148,15 @@ namespace Blogio.Blog
         [Authorize(Roles = "admin,author")]
         public async Task<BlogPostDto> CreateAsync(CreateUpdateBlogPostDto input)
         {
+            // Author (admin değil) ise AuthorId’yi kendisine zorla
+            var me = CurrentUser.Id;
+            var admin = CurrentUser.IsInRole("admin");
+            if (me.HasValue && !admin)
+                input.AuthorId = me.Value;
+
+            if (!IsAdmin)
+                input.AuthorId = Me ?? throw new AbpAuthorizationException();
+
             // Tag existence check (EF bağımlılığı yok)
             if (input.TagIds?.Count > 0)
             {
@@ -159,6 +193,7 @@ namespace Blogio.Blog
         public async Task<BlogPostDto> UpdateAsync(Guid id, CreateUpdateBlogPostDto input)
         {
             var entity = await _blogRepository.GetAsync(id);
+            if (!CanManagePost(entity)) throw new AbpAuthorizationException();
 
             entity.Title = input.Title;
             entity.Content = input.Content;
@@ -199,6 +234,9 @@ namespace Blogio.Blog
         [Authorize(Roles = "admin,author")]
         public async Task DeleteAsync(Guid id)
         {
+            var entity = await _blogRepository.GetAsync(id);
+            if (!CanManagePost(entity)) throw new AbpAuthorizationException();
+
             // (İsteğe bağlı) Join ve yorumları manuel silmek istersen:
             await _blogPostTagRepository.DeleteAsync(x => x.BlogPostId == id);
             await _commentRepository.DeleteAsync(x => x.BlogPostId == id);
@@ -210,6 +248,7 @@ namespace Blogio.Blog
         public async Task PublishAsync(Guid id)
         {
             var entity = await _blogRepository.GetAsync(id);
+            if (!CanManagePost(entity)) throw new AbpAuthorizationException();
             if (!entity.IsPublished)
             {
                 entity.IsPublished = true;
@@ -221,6 +260,7 @@ namespace Blogio.Blog
         public async Task UnpublishAsync(Guid id)
         {
             var entity = await _blogRepository.GetAsync(id);
+            if (!CanManagePost(entity)) throw new AbpAuthorizationException();
             if (entity.IsPublished)
             {
                 entity.IsPublished = false;
@@ -264,7 +304,12 @@ namespace Blogio.Blog
 
             await _likeRepository.DeleteAsync(x => x.BlogPostId == id && x.UserId == me);
 
+            // >>> Silmeyi DB’ye yaz
+            await CurrentUnitOfWork.SaveChangesAsync();
+
+            // >>> Artık doğru sayıyı okur
             var count = await _likeRepository.CountAsync(x => x.BlogPostId == id);
+
             var post = await _blogRepository.GetAsync(id);
             if (post.LikeCount != count)
             {
@@ -347,6 +392,11 @@ namespace Blogio.Blog
             return dto;
         }
 
+        [Authorize(Roles = "admin")]
+        public async Task DeleteCommentAsync(Guid commentId)
+        {
+            await _commentRepository.DeleteAsync(commentId);
+        }
 
         // -------------------- Tags --------------------
 
@@ -425,9 +475,231 @@ namespace Blogio.Blog
             return new ListResultDto<AuthorDto>(items);
         }
 
-        public Task DeleteCommentAsync(Guid commentId)
+        // -------------------- Draft --------------------
+        public async Task<BlogPostDraftDto?> GetDraftAsync(Guid blogPostId)
         {
-            throw new NotImplementedException();
+            // login değilse taslak döndürmeyelim
+            if (!Me.HasValue) return null;
+
+            var q = (await _draftRepository.GetQueryableAsync())
+                .Where(d => d.BlogPostId == blogPostId && d.OwnerUserId == Me.Value && d.IsActive)
+                .Include(d => d.Tags).ThenInclude(t => t.Tag);
+
+            var draft = await AsyncExecuter.FirstOrDefaultAsync(q);
+            return draft is null ? null : ObjectMapper.Map<BlogPostDraft, BlogPostDraftDto>(draft);
         }
+
+        public async Task<BlogPostDraftDto> UpsertDraftAsync(CreateUpdateBlogPostDraftDto input)
+        {
+            var post = await _blogRepository.GetAsync(input.BlogPostId);
+            if (!CanManagePost(post)) throw new AbpAuthorizationException();
+
+            var uid = Me ?? throw new AbpAuthorizationException();
+
+            // aktif taslağım var mı?
+            var q = (await _draftRepository.GetQueryableAsync())
+                .Where(d => d.BlogPostId == input.BlogPostId && d.OwnerUserId == uid && d.IsActive)
+                .Include(d => d.Tags);
+            var draft = await AsyncExecuter.FirstOrDefaultAsync(q);
+
+            if (draft is null)
+            {
+                draft = new BlogPostDraft
+                {                    
+                    BlogPostId = input.BlogPostId,
+                    OwnerUserId = uid,
+                    Title = input.Title,
+                    Content = input.Content,
+                    IsActive = true
+                };
+                draft = await _draftRepository.InsertAsync(draft, autoSave: true);
+            }
+            else
+            {
+                draft.Title = input.Title;
+                draft.Content = input.Content;
+                await _draftRepository.UpdateAsync(draft, autoSave: true);
+            }
+
+            // Tag eşitle (tamamen yenile)
+            await _draftTagRepository.DeleteAsync(x => x.BlogPostDraftId == draft.Id);
+            if (input.TagIds?.Count > 0)
+            {
+                foreach (var tid in input.TagIds.Distinct())
+                {
+                    await _draftTagRepository.InsertAsync(
+                        new BlogPostDraftTag
+                        {
+                            BlogPostDraftId = draft.Id,
+                            TagId = tid
+                        },
+                        autoSave: false);
+                }
+                await CurrentUnitOfWork.SaveChangesAsync();
+            }
+
+            // Tag -> TagDto için include ile geri oku
+            var reloaded = await (await _draftRepository.GetQueryableAsync())
+                .Where(d => d.Id == draft.Id)
+                .Include(d => d.Tags).ThenInclude(t => t.Tag)
+                .FirstAsync();
+
+            return ObjectMapper.Map<BlogPostDraft, BlogPostDraftDto>(reloaded);
+        }
+
+        public async Task DeleteDraftAsync(Guid blogPostId)
+        {
+            var uid = Me ?? throw new AbpAuthorizationException();
+            var draft = await _draftRepository.FirstOrDefaultAsync(
+                d => d.BlogPostId == blogPostId && d.OwnerUserId == uid && d.IsActive);
+            if (draft is null) return;
+
+            await _draftRepository.DeleteAsync(draft);
+        }
+
+        public async Task PublishDraftAsync(Guid blogPostId)
+        {
+            var post = await _blogRepository.GetAsync(blogPostId);
+            if (!CanManagePost(post)) throw new AbpAuthorizationException();
+
+            var uid = Me ?? throw new AbpAuthorizationException();
+            var draft = await (await _draftRepository.GetQueryableAsync())
+                .Where(d => d.BlogPostId == blogPostId && d.OwnerUserId == uid && d.IsActive)
+                .Include(d => d.Tags)
+                .FirstOrDefaultAsync();
+
+            if (draft is null)
+                throw new BusinessException("DraftNotFound");
+
+            // 1) Mevcut yayındaki postu Version olarak arşivle
+            var lastNo = await (await _versionRepository.GetQueryableAsync())
+                .Where(v => v.BlogPostId == blogPostId)
+                .MaxAsync(v => (int?)v.Version) ?? 0;
+
+            var version = new BlogPostVersion
+            {
+                BlogPostId = blogPostId,
+                Version = lastNo + 1,
+                Title = post.Title,
+                Content = post.Content
+            };
+            await _versionRepository.InsertAsync(version, autoSave: true);
+
+            var currentPostTags = await _blogPostTagRepository.GetListAsync(x => x.BlogPostId == blogPostId);
+            foreach (var link in currentPostTags)
+            {
+                await _versionTagRepository.InsertAsync(
+                    new BlogPostVersionTag
+                    {
+                        BlogPostVersionId = version.Id,
+                        TagId = link.TagId
+                    },
+                    autoSave: false);
+            }
+            await CurrentUnitOfWork.SaveChangesAsync();
+
+            // 2) Post’u taslak içeriği ile güncelle
+            post.Title = draft.Title;
+            post.Content = draft.Content;
+            post.IsPublished = true;
+            await _blogRepository.UpdateAsync(post, autoSave: true);
+
+            // 3) Post tag'lerini taslak tag'leriyle eşitle
+            var draftTagIds = draft.Tags.Select(t => t.TagId).Distinct().ToList();
+            var postTagIds = currentPostTags.Select(x => x.TagId).ToList();
+
+            var toAdd = draftTagIds.Except(postTagIds).ToList();
+            var toRemove = postTagIds.Except(draftTagIds).ToList();
+
+            if (toRemove.Count > 0)
+                await _blogPostTagRepository.DeleteAsync(x => x.BlogPostId == blogPostId && toRemove.Contains(x.TagId));
+
+            foreach (var tid in toAdd)
+                await _blogPostTagRepository.InsertAsync(new BlogPostTag(blogPostId, tid), autoSave: false);
+
+            await CurrentUnitOfWork.SaveChangesAsync();
+
+            // 4) Taslağı kaldır
+            await _draftRepository.DeleteAsync(draft);
+        }
+
+
+        // ---------------- Version ----------------
+        public async Task<ListResultDto<BlogPostVersionDto>> GetVersionsAsync(Guid blogPostId, int maxCount = 10)
+        {
+            var q = (await _versionRepository.GetQueryableAsync())
+                .Where(v => v.BlogPostId == blogPostId)
+                .Include(v => v.BlogPostVersionTags).ThenInclude(t => t.Tag)
+                .OrderByDescending(v => v.Version)
+                .Take(maxCount);
+
+            var list = await AsyncExecuter.ToListAsync(q);
+            var dtos = ObjectMapper.Map<List<BlogPostVersion>, List<BlogPostVersionDto>>(list);
+            return new ListResultDto<BlogPostVersionDto>(dtos);
+        }
+
+        public async Task<BlogPostVersionDto?> GetVersionAsync(Guid versionId)
+        {
+            var v = await (await _versionRepository.GetQueryableAsync())
+                .Where(x => x.Id == versionId)
+                .Include(x => x.BlogPostVersionTags).ThenInclude(t => t.Tag)
+                .FirstOrDefaultAsync();
+
+            return v is null ? null : ObjectMapper.Map<BlogPostVersion, BlogPostVersionDto>(v);
+        }
+
+        public async Task RevertToVersionAsync(Guid versionId)
+        {
+            var v = await (await _versionRepository.GetQueryableAsync())
+                .Where(x => x.Id == versionId)
+                .Include(x => x.BlogPostVersionTags)
+                .FirstOrDefaultAsync();
+
+            if (v is null) throw new BusinessException("VersionNotFound");
+
+            var post = await _blogRepository.GetAsync(v.BlogPostId);
+            if (!CanManagePost(post)) throw new AbpAuthorizationException();
+
+            // Önce mevcut durumu yeni bir version olarak arşivle
+            var lastNo = await (await _versionRepository.GetQueryableAsync())
+                .Where(x => x.BlogPostId == post.Id)
+                .MaxAsync(x => (int?)x.Version) ?? 0;
+
+            var cur = new BlogPostVersion
+            {
+                BlogPostId = post.Id,
+                Version = lastNo + 1,
+                Title = post.Title,
+                Content = post.Content
+            };
+            await _versionRepository.InsertAsync(cur, autoSave: true);
+
+            var nowPostTags = await _blogPostTagRepository.GetListAsync(x => x.BlogPostId == post.Id);
+            foreach (var link in nowPostTags)
+            {
+                await _versionTagRepository.InsertAsync(new BlogPostVersionTag
+                {
+                    BlogPostVersionId = cur.Id,
+                    TagId = link.TagId
+                }, autoSave: false);
+            }
+            await CurrentUnitOfWork.SaveChangesAsync();
+
+            // Post'u seçili sürüme al
+            post.Title = v.Title;
+            post.Content = v.Content;
+            await _blogRepository.UpdateAsync(post, autoSave: true);
+
+            // Tagleri version'dan kopyala
+            var versionTagIds = v.BlogPostVersionTags.Select(t => t.TagId).ToList();
+            await _blogPostTagRepository.DeleteAsync(x => x.BlogPostId == post.Id); // temizle
+
+            foreach (var tid in versionTagIds.Distinct())
+                await _blogPostTagRepository.InsertAsync(new BlogPostTag(post.Id, tid), autoSave: false);
+
+            await CurrentUnitOfWork.SaveChangesAsync();
+        }
+
+
     }
 }

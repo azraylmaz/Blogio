@@ -3,11 +3,13 @@ using System.Threading.Tasks;
 using Blazorise;
 using Blazorise.Bootstrap5;
 using Blazorise.Icons.FontAwesome;
+using Blazorise.RichTextEdit;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 using Serilog.Events;
+
 
 namespace Blogio.Blazor;
 
@@ -41,17 +43,11 @@ public class Program
             //Blazorise
             builder.Services.AddBlazorise(options =>
             {
-               options.Immediate = true;
+                options.Immediate = true;
             }).AddBootstrap5Providers()
                 .AddFontAwesomeIcons();
 
-            builder.Services.AddHttpClient<Blogio.Blazor.Services.BlogApi>(client =>
-            {
-                var baseUrl = builder.Configuration["ApiBaseUrl"] ?? "https://localhost:44342";
-                client.BaseAddress = new Uri(baseUrl);
-            });
-
-
+            builder.Services.AddBlazoriseRichTextEdit();
 
             builder.Host.AddAppSettingsSecretsJson()
                 .UseAutofac()

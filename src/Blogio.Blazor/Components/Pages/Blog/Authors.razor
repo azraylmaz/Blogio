@@ -1,6 +1,8 @@
 ﻿@page "/authors"
-@using AuthorModel = Blogio.Blazor.Models.AuthorDto
-@inject Blogio.Blazor.Services.BlogApi Api
+@using C = Blogio.Blog
+@inject C.IBlogAppService AppSvc
+@inject NavigationManager Nav
+
 
 <PageTitle>Authors</PageTitle>
 
@@ -13,21 +15,21 @@
         }
         else
         {
-            <DataGrid TItem="AuthorModel" Data="@authors" ShowPager="false" Responsive="true">
+            <DataGrid TItem="C.AuthorDto" Data="@authors" ShowPager="false" Responsive="true">
                 <DataGridColumns>
-                    <DataGridColumn TItem="AuthorModel" Field="@nameof(AuthorModel.UserName)" Caption="User" />
-                    <DataGridColumn TItem="AuthorModel" Caption="Name Surname">
+                    <DataGridColumn TItem="C.AuthorDto" Field="@nameof(C.AuthorDto.UserName)" Caption="User" />
+                    <DataGridColumn TItem="C.AuthorDto" Caption="Name Surname">
                         <DisplayTemplate Context="a">
                             @((!string.IsNullOrWhiteSpace(a.Name) ? $"{a.Name} {a.Surname}" : "-"))
                         </DisplayTemplate>
                     </DataGridColumn>
-                    <DataGridColumn TItem="AuthorModel" Field="@nameof(AuthorModel.Email)" Caption="E-mail" />
-                    <DataGridColumn TItem="AuthorModel" Field="@nameof(AuthorModel.PostCount)" Caption="Post Count" />
-                    <DataGridColumn TItem="AuthorModel" Caption="">
+                    <DataGridColumn TItem="C.AuthorDto" Field="@nameof(C.AuthorDto.Email)" Caption="E-mail" />
+                    <DataGridColumn TItem="C.AuthorDto" Field="@nameof(C.AuthorDto.PostCount)" Caption="Post Count" />
+                    <DataGridColumn TItem="C.AuthorDto">
                         <DisplayTemplate Context="a">
                             <Button Size="Size.Small" Color="Color.Light"
                                     Clicked="@(() => NavToAuthorPosts(a.Id))">
-                                This author's posts: 
+                                This author's posts
                             </Button>
                         </DisplayTemplate>
                     </DataGridColumn>
@@ -38,11 +40,13 @@
 </Card>
 
 @code {
-    private List<Blogio.Blazor.Models.AuthorDto> authors = new();
+    private List<C.AuthorDto> authors = new();
 
     protected override async Task OnInitializedAsync()
-        => authors = await Api.GetAuthorsAsync() ?? new();
+    {
+        var res = await AppSvc.GetAuthorsAsync();
+        authors = res.Items?.ToList() ?? new();
+    }
 
-    [Inject] private NavigationManager Nav { get; set; } = default!;
     private void NavToAuthorPosts(Guid id) => Nav.NavigateTo($"/blog?authorId={id}");
 }

@@ -1,5 +1,6 @@
 ﻿@page "/tags"
-@inject Services.BlogApi Api
+@using C = Blogio.Blog
+@inject C.IBlogAppService AppSvc
 
 <PageTitle>Etiketler</PageTitle>
 
@@ -10,14 +11,11 @@
             <Button Color="Color.Primary" Clicked="@Add">Ekle</Button>
         </div>
 
-        <DataGrid TItem="TagDto" Data="@tags" ShowPager="false">
+        <DataGrid TItem="C.TagDto" Data="@tags" ShowPager="false" Responsive="true">
             <DataGridColumns>
-                <DataGridColumn TItem="TagDto" Field="@nameof(TagDto.Name)" Caption="Ad" />
-                <DataGridCommandColumn TItem="TagDto">
-                    <DisplayTemplate>
-                        @{
-                            var row = (TagDto)context;
-                        }
+                <DataGridColumn TItem="C.TagDto" Field="@nameof(C.TagDto.Name)" Caption="Ad" />
+                <DataGridCommandColumn TItem="C.TagDto">
+                    <DisplayTemplate Context="row">
                         <Button Size="Size.Small" Color="Color.Primary" Clicked="() => Edit(row)">Düzenle</Button>
                         <Button Size="Size.Small" Color="Color.Danger" Class="ms-1" Clicked="() => Delete(row.Id)">Sil</Button>
                     </DisplayTemplate>
@@ -33,31 +31,43 @@
         <TextEdit @bind-Text="editName" />
     </ModalBody>
     <ModalFooter>
-        <Button Color="Color.Secondary" Clicked="() => editVisible=false">Vazgeç</Button>
+        <Button Color="Color.Secondary" Clicked="() => editVisible = false">Vazgeç</Button>
         <Button Color="Color.Primary" Clicked="@Save">Kaydet</Button>
     </ModalFooter>
 </Modal>
 
 @code {
-    private List<TagDto> tags = new();
-    private string newTag = "";
+    private List<C.TagDto> tags = new();
+    private string newTag = string.Empty;
 
     private bool editVisible;
     private Guid editId;
-    private string editName = "";
+    private string editName = string.Empty;
 
     protected override async Task OnInitializedAsync()
-        => tags = await Api.GetAllTagsAsync() ?? new();
+    {
+        var res = await AppSvc.GetAllTagsAsync();
+        tags = res.Items?.ToList() ?? new();
+    }
 
     private async Task Add()
     {
-        if (string.IsNullOrWhiteSpace(newTag)) return;
-        var res = await Api.CreateTagAsync(new CreateUpdateTagDto { Name = newTag.Trim() });
-        if (res is not null) tags.Add(res);
-        newTag = "";
+        var name = (newTag ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        // aynı isimli tag varsa tekrar oluşturma
+        if (tags.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            newTag = string.Empty;
+            return;
+        }
+
+        var created = await AppSvc.CreateTagAsync(new C.CreateUpdateTagDto { Name = name });
+        tags.Add(created);
+        newTag = string.Empty;
     }
 
-    private void Edit(TagDto t)
+    private void Edit(C.TagDto t)
     {
         editId = t.Id;
         editName = t.Name;
@@ -66,15 +76,18 @@
 
     private async Task Save()
     {
-        var res = await Api.UpdateTagAsync(editId, new CreateUpdateTagDto { Name = editName.Trim() });
+        var name = (editName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        var updated = await AppSvc.UpdateTagAsync(editId, new C.CreateUpdateTagDto { Name = name });
         var idx = tags.FindIndex(x => x.Id == editId);
-        if (idx >= 0 && res is not null) tags[idx] = res;
+        if (idx >= 0) tags[idx] = updated;
         editVisible = false;
     }
 
     private async Task Delete(Guid id)
     {
-        await Api.DeleteTagAsync(id);
+        await AppSvc.DeleteTagAsync(id);
         tags = tags.Where(x => x.Id != id).ToList();
     }
 }

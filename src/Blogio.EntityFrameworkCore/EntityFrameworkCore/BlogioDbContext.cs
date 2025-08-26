@@ -1,7 +1,7 @@
 ﻿using Blogio;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore;
 using Blogio.Blog;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Volo.Abp.AuditLogging.EntityFrameworkCore;
 using Volo.Abp.BackgroundJobs.EntityFrameworkCore;
 using Volo.Abp.Data;
@@ -9,6 +9,7 @@ using Volo.Abp.Data;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.EntityFrameworkCore;
 using Volo.Abp.EntityFrameworkCore;
+using Volo.Abp.EntityFrameworkCore.Modeling;
 using Volo.Abp.FeatureManagement.EntityFrameworkCore;
 using Volo.Abp.Identity;
 using Volo.Abp.Identity.EntityFrameworkCore;
@@ -63,12 +64,16 @@ public class BlogioDbContext :
     public DbSet<Tag> Tags { get; set; }
     public DbSet<BlogPostTag> BlogPostTags { get; set; }
     public DbSet<BlogPostLike> BlogPostLikes { get; set; } 
+    public DbSet<BlogPostDraft> BlogPostDrafts { get; set; }
+    public DbSet<BlogPostVersion> BlogPostVersions { get; set; }
+    public DbSet<BlogPostDraftTag> BlogPostDraftTags { get; set; }     
+    public DbSet<BlogPostVersionTag> BlogPostVersionTags { get; set; }
 
 
     public BlogioDbContext(DbContextOptions<BlogioDbContext> options)
         : base(options)
     {
-
+        
     }
 
     protected override void OnModelCreating(ModelBuilder builder)
@@ -86,45 +91,122 @@ public class BlogioDbContext :
         builder.ConfigureFeatureManagement();
         builder.ConfigureTenantManagement();
 
-        /* Configure your own tables/entities inside here */
-
-        //builder.Entity<YourEntity>(b =>
-        //{
-        //    b.ToTable(BlogioConsts.DbTablePrefix + "YourEntities", BlogioConsts.DbSchema);
-        //    b.ConfigureByConvention(); //auto configure for the base class props
-        //    //...
-        //});
+        builder.Entity<BlogPost>(b =>
+        {
+            b.ToTable("BlogPosts");
+            b.ConfigureByConvention();
+            b.Property(p => p.Title).HasMaxLength(256).IsRequired();
+        });
 
         //BlogPostTag composite key
         builder.Entity<BlogPostTag>()
             .HasKey(x => new { x.BlogPostId, x.TagId });
 
         // BlogPost -> Comments (1-n)
-        builder.Entity<Comment>()
-            .HasOne(c => c.BlogPost)
-            .WithMany(b => b.Comments)
-            .HasForeignKey(c => c.BlogPostId);
+        builder.Entity<Comment>(b =>
+        {
+            b.ToTable("Comments");
+            b.ConfigureByConvention();
+            b.HasOne(c => c.BlogPost)
+             .WithMany(p => p.Comments)
+             .HasForeignKey(c => c.BlogPostId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
 
         // BlogPost <-> Tag (n-n)
-        builder.Entity<BlogPostTag>()
-            .HasOne(pt => pt.BlogPost)
-            .WithMany(p => p.BlogPostTags)
-            .HasForeignKey(pt => pt.BlogPostId);
+        builder.Entity<BlogPostTag>(b =>
+        {
+            b.ToTable("BlogPostTags");
+            b.ConfigureByConvention();
+            b.HasKey(x => new { x.BlogPostId, x.TagId });
+            b.HasOne(pt => pt.BlogPost).WithMany(p => p.BlogPostTags).HasForeignKey(pt => pt.BlogPostId);
+            b.HasOne(pt => pt.Tag).WithMany(t => t.BlogPostTags).HasForeignKey(pt => pt.TagId);
+        });
 
-        builder.Entity<BlogPostTag>()
-            .HasOne(pt => pt.Tag)
-            .WithMany(t => t.BlogPostTags)
-            .HasForeignKey(pt => pt.TagId);
 
         // OnModelCreating:
         builder.Entity<BlogPostLike>(b =>
         {
-            b.ToTable("BlogPostLikes");              // tablo adını sabitle
+            b.ToTable("BlogPostLikes");
+            b.ConfigureByConvention();
             b.HasKey(x => x.Id);
             b.HasIndex(x => new { x.BlogPostId, x.UserId }).IsUnique();
             b.Property(x => x.BlogPostId).IsRequired();
             b.Property(x => x.UserId).IsRequired();
         });
 
+
+        // DRAFT
+        builder.Entity<BlogPostDraft>(b =>
+        {
+            b.ToTable("BlogPostDrafts");
+            b.ConfigureByConvention();
+            b.HasOne(d => d.BlogPost)
+             .WithMany(p => p.Drafts)
+             .HasForeignKey(d => d.BlogPostId)
+             .OnDelete(DeleteBehavior.Cascade);
+            // Tag ilişkileri...
+        });
+
+        // DRAFT <-> TAG (N-N)
+        builder.Entity<BlogPostDraftTag>(b =>
+        {
+            b.ToTable("BlogPostDraftTags");
+            b.ConfigureByConvention();
+
+            b.HasKey(x => new { x.BlogPostDraftId, x.TagId });
+
+            b.HasOne(x => x.Draft)
+             .WithMany(d => d.Tags)                
+             .HasForeignKey(x => x.BlogPostDraftId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasOne(x => x.Tag)
+             .WithMany(t => t.DraftTags)           
+             .HasForeignKey(x => x.TagId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // VERSION (geçmiş)
+        builder.Entity<BlogPostVersion>(b =>
+        {
+            b.ToTable("BlogPostVersions");
+            b.ConfigureByConvention();
+            b.HasOne(v => v.BlogPost)
+             .WithMany(p => p.Versions)
+             .HasForeignKey(v => v.BlogPostId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasIndex(v => new { v.BlogPostId, v.Version }).IsUnique(); 
+        });
+
+        // VERSION <-> TAG (N-N)
+        builder.Entity<BlogPostVersionTag>(b =>
+        {
+            b.ToTable("BlogPostVersionTags");
+            b.ConfigureByConvention();
+
+            b.HasKey(x => new { x.BlogPostVersionId, x.TagId });
+
+            b.HasOne(x => x.Version)
+             .WithMany(v => v.BlogPostVersionTags)                
+             .HasForeignKey(x => x.BlogPostVersionId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasOne(x => x.Tag)
+             .WithMany(t => t.VersionTags)         
+             .HasForeignKey(x => x.TagId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Tag
+        builder.Entity<Tag>(b =>
+        {
+            b.ToTable("Tags");
+            b.ConfigureByConvention();
+            b.Property(t => t.Name).HasMaxLength(128).IsRequired();
+            b.HasIndex(t => t.Name).IsUnique();
+        });
     }
 }
+

@@ -3,6 +3,7 @@ using System;
 using Blogio.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Volo.Abp.EntityFrameworkCore;
@@ -12,9 +13,11 @@ using Volo.Abp.EntityFrameworkCore;
 namespace Blogio.Migrations
 {
     [DbContext(typeof(BlogioDbContext))]
-    partial class BlogioDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250826100117_DraftsAndVersions")]
+    partial class DraftsAndVersions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -86,87 +89,11 @@ namespace Blogio.Migrations
 
                     b.Property<string>("Title")
                         .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("BlogPosts", (string)null);
-                });
-
-            modelBuilder.Entity("Blogio.Blog.BlogPostDraft", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("BlogPostId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ConcurrencyStamp")
-                        .IsConcurrencyToken()
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("ConcurrencyStamp");
-
-                    b.Property<string>("Content")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreationTime")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("CreationTime");
-
-                    b.Property<Guid?>("CreatorId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("CreatorId");
-
-                    b.Property<string>("ExtraProperties")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("ExtraProperties");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime?>("LastModificationTime")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("LastModificationTime");
-
-                    b.Property<Guid?>("LastModifierId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("LastModifierId");
-
-                    b.Property<Guid>("OwnerUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("BlogPostId");
-
-                    b.ToTable("BlogPostDrafts", (string)null);
-                });
-
-            modelBuilder.Entity("Blogio.Blog.BlogPostDraftTag", b =>
-                {
-                    b.Property<Guid>("BlogPostDraftId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TagId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("BlogPostDraftId", "TagId");
-
-                    b.HasIndex("TagId");
-
-                    b.ToTable("BlogPostDraftTags", (string)null);
+                    b.ToTable("BlogPosts");
                 });
 
             modelBuilder.Entity("Blogio.Blog.BlogPostLike", b =>
@@ -200,80 +127,7 @@ namespace Blogio.Migrations
 
                     b.HasIndex("TagId");
 
-                    b.ToTable("BlogPostTags", (string)null);
-                });
-
-            modelBuilder.Entity("Blogio.Blog.BlogPostVersion", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("BlogPostId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ConcurrencyStamp")
-                        .IsConcurrencyToken()
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)")
-                        .HasColumnName("ConcurrencyStamp");
-
-                    b.Property<string>("Content")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreationTime")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("CreationTime");
-
-                    b.Property<Guid?>("CreatorId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("CreatorId");
-
-                    b.Property<string>("ExtraProperties")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("ExtraProperties");
-
-                    b.Property<DateTime?>("LastModificationTime")
-                        .HasColumnType("timestamp without time zone")
-                        .HasColumnName("LastModificationTime");
-
-                    b.Property<Guid?>("LastModifierId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("LastModifierId");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("Version")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BlogPostId", "Version")
-                        .IsUnique();
-
-                    b.ToTable("BlogPostVersions", (string)null);
-                });
-
-            modelBuilder.Entity("Blogio.Blog.BlogPostVersionTag", b =>
-                {
-                    b.Property<Guid>("BlogPostVersionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TagId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("BlogPostVersionId", "TagId");
-
-                    b.HasIndex("TagId");
-
-                    b.ToTable("BlogPostVersionTags", (string)null);
+                    b.ToTable("BlogPostTags");
                 });
 
             modelBuilder.Entity("Blogio.Blog.Comment", b =>
@@ -320,7 +174,7 @@ namespace Blogio.Migrations
 
                     b.HasIndex("BlogPostId");
 
-                    b.ToTable("Comments", (string)null);
+                    b.ToTable("Comments");
                 });
 
             modelBuilder.Entity("Blogio.Blog.Tag", b =>
@@ -330,15 +184,11 @@ namespace Blogio.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Name")
-                        .IsUnique();
-
-                    b.ToTable("Tags", (string)null);
+                    b.ToTable("Tags");
                 });
 
             modelBuilder.Entity("Volo.Abp.AuditLogging.AuditLog", b =>
@@ -2117,36 +1967,6 @@ namespace Blogio.Migrations
                     b.ToTable("AbpTenantConnectionStrings", (string)null);
                 });
 
-            modelBuilder.Entity("Blogio.Blog.BlogPostDraft", b =>
-                {
-                    b.HasOne("Blogio.Blog.BlogPost", "BlogPost")
-                        .WithMany("Drafts")
-                        .HasForeignKey("BlogPostId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("BlogPost");
-                });
-
-            modelBuilder.Entity("Blogio.Blog.BlogPostDraftTag", b =>
-                {
-                    b.HasOne("Blogio.Blog.BlogPostDraft", "Draft")
-                        .WithMany("Tags")
-                        .HasForeignKey("BlogPostDraftId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Blogio.Blog.Tag", "Tag")
-                        .WithMany("DraftTags")
-                        .HasForeignKey("TagId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Draft");
-
-                    b.Navigation("Tag");
-                });
-
             modelBuilder.Entity("Blogio.Blog.BlogPostTag", b =>
                 {
                     b.HasOne("Blogio.Blog.BlogPost", "BlogPost")
@@ -2164,36 +1984,6 @@ namespace Blogio.Migrations
                     b.Navigation("BlogPost");
 
                     b.Navigation("Tag");
-                });
-
-            modelBuilder.Entity("Blogio.Blog.BlogPostVersion", b =>
-                {
-                    b.HasOne("Blogio.Blog.BlogPost", "BlogPost")
-                        .WithMany("Versions")
-                        .HasForeignKey("BlogPostId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("BlogPost");
-                });
-
-            modelBuilder.Entity("Blogio.Blog.BlogPostVersionTag", b =>
-                {
-                    b.HasOne("Blogio.Blog.BlogPostVersion", "Version")
-                        .WithMany("BlogPostVersionTags")
-                        .HasForeignKey("BlogPostVersionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Blogio.Blog.Tag", "Tag")
-                        .WithMany("VersionTags")
-                        .HasForeignKey("TagId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Tag");
-
-                    b.Navigation("Version");
                 });
 
             modelBuilder.Entity("Blogio.Blog.Comment", b =>
@@ -2354,29 +2144,11 @@ namespace Blogio.Migrations
                     b.Navigation("BlogPostTags");
 
                     b.Navigation("Comments");
-
-                    b.Navigation("Drafts");
-
-                    b.Navigation("Versions");
-                });
-
-            modelBuilder.Entity("Blogio.Blog.BlogPostDraft", b =>
-                {
-                    b.Navigation("Tags");
-                });
-
-            modelBuilder.Entity("Blogio.Blog.BlogPostVersion", b =>
-                {
-                    b.Navigation("BlogPostVersionTags");
                 });
 
             modelBuilder.Entity("Blogio.Blog.Tag", b =>
                 {
                     b.Navigation("BlogPostTags");
-
-                    b.Navigation("DraftTags");
-
-                    b.Navigation("VersionTags");
                 });
 
             modelBuilder.Entity("Volo.Abp.AuditLogging.AuditLog", b =>

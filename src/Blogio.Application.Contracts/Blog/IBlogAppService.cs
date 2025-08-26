@@ -1,4 +1,4 @@
-﻿using Blogio.Blazor.Components.Pages.Blog;
+﻿
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -46,6 +46,18 @@ namespace Blogio.Blog
 
         // --- Authors ---
         Task<ListResultDto<AuthorDto>> GetAuthorsAsync();
+
+
+        // DRAFT
+        Task<BlogPostDraftDto?> GetDraftAsync(Guid blogPostId);                           // aktif taslağım
+        Task<BlogPostDraftDto> UpsertDraftAsync(CreateUpdateBlogPostDraftDto input);      // oluştur/güncelle
+        Task DeleteDraftAsync(Guid blogPostId);                                           // taslağı sil
+        Task PublishDraftAsync(Guid blogPostId);                                          // taslağı yayına al (+versiyon üret)
+
+        // VERSIONS
+        Task<ListResultDto<BlogPostVersionDto>> GetVersionsAsync(Guid blogPostId, int maxCount = 10);
+        Task<BlogPostVersionDto?> GetVersionAsync(Guid versionId);
+        Task RevertToVersionAsync(Guid versionId);
 
     }
 }

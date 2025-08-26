@@ -1,12 +1,9 @@
 ﻿@page "/blog/{id:guid}"
-@inject Services.BlogApi Api
 @inject NavigationManager Nav
 @using C = Blogio.Blog
-@using M = Blogio.Blazor.Models
 @using Microsoft.AspNetCore.Components.Authorization
-@inject Blogio.Blog.IBlogAppService AppSvc
-
-
+@using System.Threading
+@inject C.IBlogAppService AppSvc
 
 <PageTitle>Blog Post</PageTitle>
 
@@ -17,119 +14,113 @@
 else
 {
     <Row Class="g-3">
-        <!-- SOL: Yazı + Yazar bilgisi + Yazarın diğer yazıları -->
-        <Column md="12" lg="9" xl="10" xxl="10" Style="flex: 0 0 70%; max-width: 70%;">
+        <!-- SOL -->
+        <Column md="12" lg="9" xl="10" xxl="10" Style="flex:0 0 70%;max-width:70%;">
             <Card>
                 <CardHeader>
                     <div class="d-flex align-items-center justify-content-between">
-                        <h4 class="mb-0">@post.Title</h4>
+                        <div class="flex-grow-1">
+                            <div class="d-flex align-items-center gap-2">
+                                <h4 class="mb-0">@post.Title</h4>
+                                @if (latestVersion is not null)
+                                {
+                                    <span class="badge rounded-pill text-secondary">
+                                        *edited @Ago(latestVersion.CreationTime)
+                                    </span>
+                                }
+
+                                @if (!post.IsPublished)
+                                {
+                                    <Badge Color="Color.Secondary">Draft</Badge>
+                                }
+                            </div>
+                            <div class="mt-2 d-flex flex-wrap gap-1 text-muted">
+                                @if (post.BlogPostTags?.Count > 0)
+                                {
+                                    @foreach (var t in post.BlogPostTags)
+                                    {
+                                        <a href="@($"/blog?tagId={t.Id}")"
+                                           class="badge rounded-pill text-secondary border me-1"
+                                           style="text-decoration:none;"
+                                           @onclick:stopPropagation="true">#@t.Name</a>
+                                    }
+                                }
+                            </div>
+                        </div>
                         <AuthorizeView Roles="admin, author">
                             <Authorized>
-                                <div>
-                                    <Badge Color="@(post.IsPublished? Color.Success: Color.Secondary)">
-                                        @(post.IsPublished ? "Published" : "Draft")
-                                    </Badge>
-                                </div>
+                                <Badge Color="@(post.IsPublished? Color.Success: Color.Secondary)">
+                                    @(post.IsPublished ? "Published" : "Draft")
+                                </Badge>
                             </Authorized>
                         </AuthorizeView>
                     </div>
                 </CardHeader>
+
                 <CardBody>
-                    <p style="white-space: pre-wrap;">@post.Content</p>
-
-                    @if (post.BlogPostTags?.Count > 0)
-                    {
-                        <div class="mt-3">
-                            @foreach (var t in post.BlogPostTags)
-                            {
-                                <Badge Color="Color.Info" Class="me-1">@t.Name</Badge>
-                            }
-                        </div>
-                    }
+                    <div class="blog-content" style="line-height:1.7">
+                        @((MarkupString)(post?.Content ?? string.Empty))
+                    </div>
                 </CardBody>
-
             </Card>
 
-            <!-- Yazar kartı -->
-            @if (author is not null)
+            <!-- Latest version preview -->
+            @if (latestVersion is not null)
             {
                 <Card class="mt-3">
-                    <CardHeader><h6 class="mb-0">Author</h6></CardHeader>
-                    <CardBody>
-                        <div class="d-flex align-items-center justify-content-between">
-                            <div>
-                                <div class="fw-semibold">@DisplayAuthorName(author)</div>
-                                @if (!string.IsNullOrWhiteSpace(author.Email))
-                                {
-                                    <div class="text-muted small">@author.Email</div>
-                                }
-                            </div>
-                            <Button Color="Color.Light"
-                                    Clicked="@(() => Nav.NavigateTo($"/blog?authorId={author.Id}"))">
-                                This author's posts
-                            </Button>
+                    <CardHeader>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="fw-semibold">Previous version (#@latestVersion.Version)</div>
+                            <div class="text-muted small">@latestVersion.CreationTime.ToLocalTime().ToString("g")</div>
                         </div>
-                    </CardBody>
-                </Card>
-            }
-
-            <!-- Yazarın diğer yazıları -->
-            @if (otherPosts?.Count > 0)
-            {
-                <Card class="mt-3">
-                    <CardHeader><h6 class="mb-0">This author's posts</h6></CardHeader>
+                    </CardHeader>
                     <CardBody>
-                        <ListGroup>
-                            @foreach (var p in otherPosts)
-                            {
-                                <ListGroupItem Class="d-flex justify-content-between align-items-center">
-                                    <span>@p.Title</span>
-                                    <Button Size="Size.Small" Color="Color.Light"
-                                            Clicked="@(() => Nav.NavigateTo($"/blog/{p.Id}"))">
-                                        Aç
-                                    </Button>
-                                </ListGroupItem>
-                            }
-                        </ListGroup>
+                        <div class="text-muted" style="line-height:1.7">
+                            @((MarkupString) ShortenHtml(latestVersion.Content, 400))
+                        </div>
+                        <div class="mt-2">
+                            <Button Size="Size.Small" Color="Color.Light" Clicked="@OpenVersionModal">
+                                Read full
+                            </Button>
+                            <AuthorizeView Roles="admin, author">
+                                <Authorized>
+                                    @if (_canEditThis)
+                                    {
+                                        <Button Size="Size.Small" Color="Color.Warning" Class="ms-2" Clicked="@RevertLatest">
+                                            Revert to this
+                                        </Button>
+                                    }
+                                </Authorized>
+                            </AuthorizeView>
+                        </div>
                     </CardBody>
                 </Card>
             }
         </Column>
 
-        <!-- SAĞ: Beğeni + Yorumlar -->
+        <!-- SAĞ -->
         <Column md="12" lg="3" xl="2" xxl="2">
             <Card class="shadow-sm" style="position: sticky; top: 1rem;">
                 <CardHeader>
                     <div class="d-flex justify-content-between align-items-start w-100">
-
-                        <!-- Sağ tarafta: Like (üstünde başlık) + Unpublish/Publish yan yana -->
                         <div class="d-flex align-items-end gap-2">
-                            <!-- Like grubu -->
-                            <div class="d-flex flex-column align-items-center me-2">
-                                <Button Size="Size.Small"
-                                        Color="@(likedByMe ? Color.Dark : Color.Success)"
-                                        Clicked="@(likedByMe ? (() => Unlike(post.Id)) : (() => Like(post.Id)))">
-                                    <Icon Name="IconName.ThumbsUp" class="me-1" />
-                                    @(likedByMe ? $"Unlike ({post!.LikeCount})" : $"Like ({post!.LikeCount})")
-                                </Button>
+                            <Button Size="Size.Small"
+                                    Color="@(likedByMe ? Color.Dark : Color.Success)"
+                                    Clicked="@(likedByMe ? (() => Unlike(post.Id)) : (() => Like(post.Id)))">
+                                <Icon Name="IconName.ThumbsUp" class="me-1" />
+                                @(likedByMe ? $"Unlike ({post!.LikeCount})" : $"Like ({post!.LikeCount})")
+                            </Button>
 
-                            </div>
-
-                            <!-- EDIT (Unpublish/Publish'ten önce) -->
                             <AuthorizeView Roles="admin, author">
                                 <Authorized>
-                                    <Button Size="Size.Small" Color="Color.Info" Clicked="OpenEdit">
-                                        <Icon Name="IconName.Edit" class="me-1" /> Edit
-                                    </Button>
-
-                                    <!-- Publish/Unpublish butonu -->
-                                    @if (post!.IsPublished)
+                                    @if (_canEditThis)
                                     {
-                                        <Button Size="Size.Small" Color="Color.Dark" Clicked="Unpublish">Unpublish</Button>
-                                    }
-                                    else
-                                    {
-                                        <Button Size="Size.Small" Color="Color.Primary" Clicked="Publish">Publish</Button>
+                                        <Button Size="Size.Small" Color="Color.Info" Clicked="OpenDraftEdit">
+                                            <Icon Name="IconName.Edit" class="me-1" /> Edit (draft)
+                                        </Button>
+                                        <Button Size="Size.Small" Color="Color.Danger" Clicked="OpenDeleteConfirm">
+                                            <Icon Name="IconName.Delete" class="me-1" /> Delete
+                                        </Button>
                                     }
                                 </Authorized>
                             </AuthorizeView>
@@ -137,15 +128,13 @@ else
                     </div>
                 </CardHeader>
 
-
                 <CardBody>
-                    <!-- Yorum ekleme -->
+                    <!-- comments -->
                     <div class="mb-3 d-flex">
                         <TextEdit Class="flex-grow-1" @bind-Text="newComment" Placeholder="Write a Comment..." />
                         <Button Size="Size.Small" Color="Color.Primary" Class="ms-2" Clicked="@AddComment">Add</Button>
                     </div>
 
-                    <!-- Yorum listesi -->
                     @if (comments.Count == 0)
                     {
                         <div class="text-muted">No Comments.</div>
@@ -172,35 +161,28 @@ else
                                         </div>
                                         <AuthorizeView Roles="admin">
                                             <Authorized>
-                                                 <Button Size="Size.Small" Color="Color.Light" Clicked="() => DeleteComment(c.Id)">
-                                                        Delete
-                                                 </Button>
+                                                <Button Size="Size.Small" Color="Color.Light" Clicked="() => DeleteComment(c.Id)">
+                                                    Delete
+                                                </Button>
                                             </Authorized>
                                         </AuthorizeView>
                                     </div>
                                 </ListGroupItem>
                             }
                         </ListGroup>
-
                     }
                 </CardBody>
             </Card>
         </Column>
     </Row>
 
-    <!---------------  -- MODAL ------------------>
-    <Modal @bind-Visible="editVisible"
-           Size="ModalSize.Default"
-           Centered="true"
-           Scrollable="true"
-           Backdrop="true"
-           Class="p-2">
-
+    <!-- DRAFT EDIT MODAL -->
+    <Modal @bind-Visible="draftVisible" Size="ModalSize.Default" Centered="true" Scrollable="true" Backdrop="true" Class="p-2">
         <ModalBody Class="p-4">
-            <div class="mx-auto my-3" style="max-width: 860px;">
-                <Card Class="shadow-lg rounded-4 border-0" Style="background:#f3f3f3; color:#212529;">
+            <div class="mx-auto my-3" style="max-width:860px;">
+                <Card Class="shadow-lg rounded-4 border-0" Style="background:#f0f0f0; color:#212529;">
                     <CardHeader class="bg-transparent border-0 pt-4 pb-0">
-                        <span class="fw-semibold fs-5">Edit Blog Post</span>
+                        <span class="fw-semibold fs-5">Edit Draft</span>
                     </CardHeader>
                     <br />
                     <CardBody class="pb-2">
@@ -208,32 +190,31 @@ else
                             <div class="col-12 px-4">
                                 <Field>
                                     <FieldLabel>Title</FieldLabel>
-                                    <TextEdit @bind-Text="form.Title" Placeholder="Title..." />
+                                    <TextEdit @bind-Text="draftForm.Title" Placeholder="Title..." />
                                 </Field>
                             </div>
 
                             <div class="col-12 px-4">
                                 <Field>
                                     <FieldLabel>Content</FieldLabel>
-                                    <MemoEdit @bind-Text="form.Content" Rows="8" Placeholder="Content..." />
-                                </Field>
-                            </div>
-
-                            <div class="col-12 col-md-6 px-4">
-                                <Field>
-                                    <FieldLabel>Author</FieldLabel>
-                                    <TextEdit ReadOnly="true" Plaintext="true"
-                                              Text="@(author is null ? string.Empty : DisplayAuthorName(author))" />
+                                    <RichTextEdit @ref="richte"
+                                                  @bind-HTML="draftForm.Content"
+                                                  @key="editingId"
+                                                  Placeholder="Content..." Style="height:360px"
+                                                  Class="form-control bg-white border-0">
+                                        <RichTextEditToolbar />
+                                        <RichTextEditContent />
+                                    </RichTextEdit>
                                 </Field>
                             </div>
 
                             <div class="col-12 col-md-6 px-4">
                                 <Field>
                                     <FieldLabel>Tags</FieldLabel>
-                                    <Select TValue="Guid"
-                                            Multiple="true"
-                                            SelectedValues="@selectedTagIds"
-                                            SelectedValuesChanged="@( (IReadOnlyList<Guid> vals) => OnSelectedTagsChanged(vals) )">
+                                    <Select TValue="Guid" Multiple="true"
+                                            SelectedValues="@selectedDraftTagIds"
+                                            SelectedValuesChanged="OnDraftTagsChanged"
+                                            Class="form-select bg-white border-0">
                                         @foreach (var t in tags)
                                         {
                                             <SelectItem Value="@t.Id">@t.Name</SelectItem>
@@ -241,22 +222,51 @@ else
                                     </Select>
                                 </Field>
                             </div>
-
-                            <div class="col-12 px-4">
-                                <Field>
-                                    <FieldLabel class="mb-1">Publish</FieldLabel>
-                                    <Switch @bind-Checked="isPublishedSwitch"
-                                            CheckedText="Publish"
-                                            UncheckedText="Draft"
-                                            Color="Color.Success" />
-                                </Field>
-                            </div>
                         </div>
                     </CardBody>
 
                     <CardFooter class="bg-transparent border-0 d-flex justify-content-end gap-2 px-4 pb-3">
-                        <Button Color="Color.Secondary" Outline Clicked="() => editVisible = false">Cancel</Button>
-                        <Button Color="Color.Primary" Clicked="SaveEdit">Save</Button>
+                        <Button Color="Color.Secondary" Outline Clicked="() => draftVisible = false">Cancel</Button>
+                        <Button Color="Color.Light" Clicked="SaveDraft">Save draft</Button>
+                        <Button Color="Color.Primary" Clicked="PublishFromDraft">Publish changes</Button>
+                    </CardFooter>
+                </Card>
+            </div>
+        </ModalBody>
+    </Modal>
+
+    <!-- VERSION PREVIEW MODAL -->
+    <Modal @bind-Visible="versionVisible" Size="ModalSize.Large" Centered="true" Backdrop="true" Scrollable="true" Class="p-2">
+        <ModalBody class="p-3">
+            <div class="mx-auto my-3" style="max-width: 860px;">
+                 <Card Class="shadow-lg rounded-4 border-0 row g-3" Style="background:#f3f3f3; color:#212529;">
+                    @if (latestVersion is not null)
+                    {
+                        <h5 class="mb-2">Version #@latestVersion.Version</h5>
+                        <div class="text-muted small mb-3">@latestVersion.CreationTime.ToLocalTime().ToString("f")</div>
+                        <div style="line-height:1.7">@((MarkupString)latestVersion.Content)</div>
+                    }
+                </Card>
+            </div>
+        </ModalBody>
+    </Modal>
+
+    <!-- DELETE MODAL (mevcut) -->
+    <Modal @bind-Visible="deleteVisible" Size="ModalSize.Default" Centered="true" Backdrop="true" Scrollable="true" Class="p-2">
+        <ModalBody class="p-3">
+            <div class="mx-auto my-3" style="max-width: 860px;">
+                <Card Class="shadow-lg rounded-4 border-0 row g-3" Style="background:#f3f3f3; color:#212529;">
+                    <div class="pt-2 px-4">
+                        <div class="fw-semibold mb-2">Delete post?</div>
+                        <div>Are you sure you want to delete <span class="fw-semibold">"@post?.Title"</span>?</div>
+                        @if (!string.IsNullOrWhiteSpace(deleteError))
+                        {
+                            <div class="text-danger mt-2">@deleteError</div>
+                        }
+                    </div>
+                    <CardFooter class="bg-transparent border-0 d-flex justify-content-end gap-2 px-4 pb-3">
+                        <Button Color="Color.Secondary" Outline Clicked="() => deleteVisible = false" Disabled="@deleting">Cancel</Button>
+                        <Button Color="Color.Danger" Clicked="ConfirmDelete" Disabled="@deleting">Delete</Button>
                     </CardFooter>
                 </Card>
             </div>
@@ -267,115 +277,169 @@ else
 @code {
     [Parameter] public Guid id { get; set; }
 
-    private M.BlogPostDto? post;
+    private C.BlogPostDto? post;
     private List<C.CommentDto> comments = new();
     private string newComment = "";
 
-    private M.AuthorDto? author;
-    private List<M.BlogPostListItemDto> otherPosts = new();
+    private C.AuthorDto? author;
+    private List<C.TagDto> tags = new();
 
-    private List<M.TagDto> tags = new();
-    private List<M.AuthorDto> authors = new();
+    private bool isAuthenticated;
+    private bool likedByMe;
+    private bool _canEditThis;
+    private Guid? _myId;
+    private bool _isAdmin;
+    private bool _isAuthor;
 
+    private C.BlogPostVersionDto? latestVersion;
+
+    // draft state
+    private bool draftVisible;
+    private C.CreateUpdateBlogPostDraftDto draftForm = new();
+    private IReadOnlyList<Guid> selectedDraftTagIds = Array.Empty<Guid>();
+    private RichTextEdit? richte;
+    private Guid editingId = Guid.NewGuid();
+
+    // delete
+    private bool deleteVisible;
+    private bool deleting;
+    private string? deleteError;
+
+    // — relative time state —
+    private DateTime _nowUtc = DateTime.UtcNow;
+    private System.Threading.PeriodicTimer? _agoTimer;
+    private readonly CancellationTokenSource _agoCts = new();
 
     [CascadingParameter] private Task<AuthenticationState> AuthTask { get; set; } = default!;
-    private bool _canManage;
 
-    // --- OnParametersSetAsync: Sayfa yüklendiğinde veya parametreler değiştiğinde çağrılır
     protected override async Task OnParametersSetAsync()
     {
         var auth = await AuthTask;
         var user = auth.User;
-        try { likedByMe = await AppSvc.IsLikedByMeAsync(id); }
-        catch { likedByMe = false; }
 
         isAuthenticated = user.Identity?.IsAuthenticated == true;
-
-
-        _canManage = user.IsInRole("admin") || user.IsInRole("author");
+        _isAdmin = user.IsInRole("admin");
+        _isAuthor = user.IsInRole("author");
+        _myId = TryGetUserId(user);
 
         if (id == Guid.Empty) return;
 
-        // 1) Post
-        post = await Api.GetAsync(id);
+        post = await AppSvc.GetAsync(id);
         if (post is null) return;
 
-        if (isAuthenticated)
-        {
-            try
-            {
-                likedByMe = await Api.IsLikedByMeAsync(id);
-            }
-            catch
-            {
-                likedByMe = false; // beklenmedik hata olursa da sayfayı aç
-            }
-        }
-        else
-        {
-            likedByMe = false;
-        }
-
-
-        // Yayında değilse ve yönetemiyorsa -> uzaklaştır
-        if (!post.IsPublished && !_canManage)
+        _canEditThis = _isAdmin || (_isAuthor && _myId.HasValue && post.AuthorId == _myId.Value);
+        if (!post.IsPublished && !_canEditThis)
         {
             Nav.NavigateTo("/blog");
             return;
         }
-        
+
+        try { likedByMe = await AppSvc.IsLikedByMeAsync(id); } catch { likedByMe = false; }
+
         var clist = await AppSvc.GetCommentsAsync(id);
         comments = clist.Items?.ToList() ?? new();
 
+        tags = (await AppSvc.GetAllTagsAsync()).Items?.ToList() ?? new();
 
-        // 3) Yazar bilgisi (liste içinden bul)
-        authors = await Api.GetAuthorsAsync() ?? new();
-        author = authors.FirstOrDefault(a => a.Id == post.AuthorId);
-
-        // 4) Yazarın diğer yazıları (yayında olanlar, max 5; mevcut yazıyı hariç tut)
-        var list = await Api.GetListAsync(new GetBlogPostListDto
-        {
-            AuthorId = post.AuthorId,
-            IsPublished = true,
-            MaxResultCount = 5,
-            SkipCount = 0,
-            Sorting = "CreationTime desc"
-        });
-
-        otherPosts = (list?.Items ?? new())
-            .Where(p => p.Id != id)
-            .ToList();
-
-        tags = await Api.GetAllTagsAsync() ?? new();
+        // load latest version preview
+        var vers = await AppSvc.GetVersionsAsync(id, 1);
+        latestVersion = vers.Items?.FirstOrDefault();
     }
 
-    private static string DisplayAuthorName(M.AuthorDto? a)
-    => a is null ? string.Empty
-                 : (!string.IsNullOrWhiteSpace(a.Name) ? $"{a.Name} {a.Surname}" : a.UserName);
-    
-    private bool isAuthenticated;
-    private bool likedByMe;
+    private static Guid? TryGetUserId(System.Security.Claims.ClaimsPrincipal user)
+    {
+        var s = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+              ?? user.FindFirst("sub")?.Value;
+        return Guid.TryParse(s, out var g) ? g : (Guid?)null;
+    }
 
+    private string TimeAgo(DateTime dtUtc)
+    {
+        var dt = dtUtc.ToLocalTime();
+        var span = DateTime.Now - dt;
+        if (span.TotalSeconds < 60) return $"{(int)span.TotalSeconds}s ago";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        return $"{(int)span.TotalDays}d ago";
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        // ilk 60 saniye her saniye tazele, sonra dakikada bir
+        _ = Task.Run(async () =>
+        {
+            var tickEvery = TimeSpan.FromSeconds(1);
+            _agoTimer = new System.Threading.PeriodicTimer(tickEvery);
+            var ticks = 0;
+
+            try
+            {
+                while (await _agoTimer.WaitForNextTickAsync(_agoCts.Token))
+                {
+                    _nowUtc = DateTime.UtcNow;
+                    await InvokeAsync(StateHasChanged);
+
+                    if (++ticks == 60) // 1 dk sonra daha seyrek güncelle
+                    {
+                        _agoTimer.Dispose();
+                        _agoTimer = new System.Threading.PeriodicTimer(TimeSpan.FromMinutes(1));
+                        ticks = 0;
+                    }
+                }
+            }
+            catch (OperationCanceledException) { /* ignore */ }
+        });
+    }
+
+    public void Dispose()
+    {
+        _agoCts.Cancel();
+        _agoTimer?.Dispose();
+    }
+
+    private static string Ago(DateTime createdUtc)
+    {
+        var local = createdUtc.Kind switch
+        {
+            DateTimeKind.Utc => createdUtc.ToLocalTime(),
+            DateTimeKind.Local => createdUtc,
+            _ => DateTime.SpecifyKind(createdUtc, DateTimeKind.Local)
+        };
+
+        var diff = DateTime.Now - local;
+        if (diff < TimeSpan.Zero) diff = TimeSpan.Zero;
+
+        if (diff.TotalSeconds < 5) return "just now";
+        if (diff.TotalSeconds < 60) return $"{(int)diff.TotalSeconds}s ago";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
+        return $"{(int)diff.TotalDays}d ago";
+    }
+    private static string ShortenHtml(string html, int maxChars)
+    {
+        if (string.IsNullOrEmpty(html)) return string.Empty;
+        var s = new string(html.Take(maxChars).ToArray());
+        if (html.Length > maxChars) s += "...";
+        return s;
+    }
+
+    // likes
     private async Task Like(Guid id)
     {
         if (!isAuthenticated)
         {
-            // ABP varsayılan giriş yolu
             var ret = Uri.EscapeDataString(Nav.ToBaseRelativePath(Nav.Uri));
             Nav.NavigateTo($"/Account/Login?returnUrl=/{ret}", forceLoad: true);
             return;
         }
-
         try
         {
             post!.LikeCount = await AppSvc.LikeAsync(id);
-            likedByMe = true;      // toggle
+            likedByMe = true;
             StateHasChanged();
         }
-        catch (HttpRequestException ex)
-        {
-            // istersen 401 için de aynı yönlendirmeyi yap
-        }
+        catch { }
     }
 
     private async Task Unlike(Guid id)
@@ -386,47 +450,29 @@ else
             Nav.NavigateTo($"/Account/Login?returnUrl=/{ret}", forceLoad: true);
             return;
         }
-
         try
         {
             post!.LikeCount = await AppSvc.UnlikeAsync(id);
-            likedByMe = false;     // toggle
+            likedByMe = false;
             StateHasChanged();
         }
-        catch (HttpRequestException ex)
-        {
-        }
+        catch { }
     }
 
-    private async Task Publish()
-    {
-        if (post is null) return;
-        await Api.PublishAsync(post.Id);
-        post.IsPublished = true;
-        StateHasChanged();
-    }
-
-    private async Task Unpublish()
-    {
-        if (post is null) return;
-        await Api.UnpublishAsync(post.Id);
-        post.IsPublished = false;
-        StateHasChanged();
-    }
-
+    // comments
     private async Task AddComment()
     {
         if (post is null || string.IsNullOrWhiteSpace(newComment)) return;
-
-        await AppSvc.AddCommentAsync(new C.CreateUpdateCommentDto
+        if (!isAuthenticated)
         {
-            BlogPostId = post.Id,
-            Text = newComment
-        });
+            var ret = Uri.EscapeDataString(Nav.ToBaseRelativePath(Nav.Uri));
+            Nav.NavigateTo($"/Account/Login?returnUrl=/{ret}", true);
+            return;
+        }
 
+        await AppSvc.AddCommentAsync(new C.CreateUpdateCommentDto { BlogPostId = post.Id, Text = newComment });
         var list = await AppSvc.GetCommentsAsync(post.Id);
-        comments = list.Items?.ToList() ?? new List<C.CommentDto>();
-
+        comments = list.Items?.ToList() ?? new();
         newComment = "";
         await InvokeAsync(StateHasChanged);
     }
@@ -436,72 +482,113 @@ else
         if (post is null) return;
         await AppSvc.DeleteCommentAsync(cid);
         var list = await AppSvc.GetCommentsAsync(post.Id);
-        comments = list.Items?.ToList() ?? new List<C.CommentDto>();
+        comments = list.Items?.ToList() ?? new();
         await InvokeAsync(StateHasChanged);
     }
 
-    // --- Edit state ---
-    private bool editVisible;
-    private M.CreateUpdateBlogPostDto form = new();
-    private bool isPublishedSwitch;
-    private IReadOnlyList<Guid> selectedTagIds = Array.Empty<Guid>();
-
-    private Task OpenEdit()
-    {
-        if (post is null) return Task.CompletedTask;
-
-        // mevcut posttan forma taşı
-        form = new M.CreateUpdateBlogPostDto
-        {
-            Title = post.Title,
-            Content = post.Content,
-            AuthorId = post.AuthorId,
-            TagIds = post.BlogPostTags.Select(t => t.Id).ToList(),
-            IsPublished = post.IsPublished
-        };
-
-        isPublishedSwitch = post.IsPublished;
-        selectedTagIds = form.TagIds; // IReadOnlyList<Guid> kabul eder
-
-        editVisible = true;
-        return Task.CompletedTask;
-    }
-
-    private async Task SaveEdit()
+    // draft edit flow
+    private async Task OpenDraftEdit()
     {
         if (post is null) return;
 
-        // basit doğrulama
-        if (string.IsNullOrWhiteSpace(form.Title) || string.IsNullOrWhiteSpace(form.Content))
-            return;
+        // 1) mevcut taslak var mı?
+        var existing = await AppSvc.GetDraftAsync(post.Id);
 
-        // Author değişmeyecek!
-        form.AuthorId = post.AuthorId;     // güvence olsun diye tekrar sabitliyoruz
-        form.IsPublished = isPublishedSwitch; // switch’ten geliyor
-        form.TagIds = selectedTagIds?.ToList() ?? new();
+        if (existing is not null)
+        {
+            draftForm = new C.CreateUpdateBlogPostDraftDto
+            {
+                BlogPostId = post.Id,
+                Title = existing.Title,
+                Content = existing.Content,
+                TagIds = existing.Tags?.Select(t => t.Id).ToList() ?? new List<Guid>()
+            };
+        }
+        else
+        {
+            // yoksa yayındaki içerikle başlat
+            draftForm = new C.CreateUpdateBlogPostDraftDto
+            {
+                BlogPostId = post.Id,
+                Title = post.Title,
+                Content = post.Content,
+                TagIds = post.BlogPostTags?.Select(t => t.Id).ToList() ?? new List<Guid>()
+            };
+        }
 
-        await Api.UpdateAsync(post.Id, form);               // sonucu kullanma
-        post = await Api.GetAsync(post.Id) ?? post;         // yeniden fetch
-        isPublishedSwitch = post.IsPublished;
+        selectedDraftTagIds = draftForm.TagIds;
+        editingId = Guid.NewGuid();
 
-        editVisible = false;
-        StateHasChanged();
+        draftVisible = true;
+        await InvokeAsync(StateHasChanged);
+
+        await Task.Yield();
+        if (richte is not null)
+            await richte.SetHtmlAsync(draftForm.Content ?? string.Empty);
     }
 
-    private Task OnSelectedTagsChanged(IReadOnlyList<Guid> values)
+    private Task OnDraftTagsChanged(IReadOnlyList<Guid> values)
     {
-        selectedTagIds = values ?? Array.Empty<Guid>();
-        form.TagIds = selectedTagIds.ToList(); // form.TagIds'ı güncelle
+        selectedDraftTagIds = values ?? Array.Empty<Guid>();
+        draftForm.TagIds = selectedDraftTagIds.ToList();
         return Task.CompletedTask;
     }
 
-    private bool _disposed;
-    public void Dispose() => _disposed = true;
-
-    private async Task SafeRefreshUI()
+    private async Task SaveDraft()
     {
-        if (_disposed) return;
-        await InvokeAsync(StateHasChanged);
+        if (post is null) return;
+        if (richte is not null)
+            draftForm.Content = await richte.GetHtmlAsync();
+
+        draftForm.TagIds = selectedDraftTagIds.ToList();
+        var saved = await AppSvc.UpsertDraftAsync(draftForm);
+
+        // formu geri doldur (özellikle tag listesi için)
+        draftForm.Title = saved.Title;
+        draftForm.Content = saved.Content;
+        selectedDraftTagIds = saved.Tags?.Select(t => t.Id).ToList() ?? new List<Guid>();
     }
 
+    private async Task PublishFromDraft()
+    {
+        if (post is null) return;
+        await SaveDraft();                 // önce taslağı kaydet
+        await AppSvc.PublishDraftAsync(post.Id);
+
+        // postu ve son sürümü yenile
+        post = await AppSvc.GetAsync(post.Id);
+        var vers = await AppSvc.GetVersionsAsync(post.Id, 1);
+        latestVersion = vers.Items?.FirstOrDefault();
+
+        draftVisible = false;
+        StateHasChanged();
+    }
+
+    // version preview / revert
+    private bool versionVisible;
+    private void OpenVersionModal() => versionVisible = true;
+
+    private async Task RevertLatest()
+    {
+        if (latestVersion is null) return;
+        await AppSvc.RevertToVersionAsync(latestVersion.Id);
+
+        post = await AppSvc.GetAsync(id);
+        var vers = await AppSvc.GetVersionsAsync(id, 1);
+        latestVersion = vers.Items?.FirstOrDefault();
+
+        StateHasChanged();
+    }
+
+    // delete flow (mevcut kodunla aynı ancak kısaltıldı)
+    private Task OpenDeleteConfirm() { deleteError = null; deleteVisible = true; return Task.CompletedTask; }
+
+    private async Task ConfirmDelete()
+    {
+        if (post is null) return;
+        await AppSvc.DeleteAsync(post.Id);
+        post = null;
+        comments.Clear();
+        Nav.NavigateTo("/blog", forceLoad: true);
+    }
 }

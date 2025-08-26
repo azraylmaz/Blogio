@@ -1,7 +1,7 @@
 ﻿using System;
 using Volo.Abp.Application.Dtos;
 
-namespace Blogio.Blazor.Components.Pages.Blog
+namespace Blogio.Blog
 {
     public class AuthorDto : EntityDto<Guid>
     {
