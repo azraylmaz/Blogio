@@ -22,17 +22,6 @@ else
                         <div class="flex-grow-1">
                             <div class="d-flex align-items-center gap-2">
                                 <h4 class="mb-0">@post.Title</h4>
-                                @if (latestVersion is not null)
-                                {
-                                    <span class="badge rounded-pill text-secondary">
-                                        *edited @Ago(latestVersion.CreationTime)
-                                    </span>
-                                }
-
-                                @if (!post.IsPublished)
-                                {
-                                    <Badge Color="Color.Secondary">Draft</Badge>
-                                }
                             </div>
                             <div class="mt-2 d-flex flex-wrap gap-1 text-muted">
                                 @if (post.BlogPostTags?.Count > 0)
@@ -47,13 +36,18 @@ else
                                 }
                             </div>
                         </div>
-                        <AuthorizeView Roles="admin, author">
-                            <Authorized>
-                                <Badge Color="@(post.IsPublished? Color.Success: Color.Secondary)">
-                                    @(post.IsPublished ? "Published" : "Draft")
-                                </Badge>
-                            </Authorized>
-                        </AuthorizeView>
+
+                        @if (latestVersion is not null)
+                        {
+                            <span class="badge rounded-pill text-secondary">
+                                *edited @Ago(latestVersion.CreationTime)
+                            </span>
+                        }
+
+                        @if (!post.IsPublished)
+                        {
+                            <Badge Color="Color.Secondary">Draft</Badge>
+                        }
                     </div>
                 </CardHeader>
 
@@ -71,7 +65,7 @@ else
                     <CardHeader>
                         <div class="d-flex justify-content-between align-items-center">
                             <div class="fw-semibold">Previous version (#@latestVersion.Version)</div>
-                            <div class="text-muted small">@latestVersion.CreationTime.ToLocalTime().ToString("g")</div>
+                            <div class="text-muted small">@FormatLocal(latestVersion.CreationTime, "g")</div>
                         </div>
                     </CardHeader>
                     <CardBody>
@@ -118,7 +112,17 @@ else
                                         <Button Size="Size.Small" Color="Color.Info" Clicked="OpenDraftEdit">
                                             <Icon Name="IconName.Edit" class="me-1" /> Edit (draft)
                                         </Button>
-                                        <Button Size="Size.Small" Color="Color.Danger" Clicked="OpenDeleteConfirm">
+                                        @* durum rozeti *@
+                                        @if (activeDraft?.Status == C.DraftStatus.Submitted)
+                                        {
+                                            <Badge Color="Color.Warning" Class="ms-1">Pending approval</Badge>
+                                        }
+                                        else if (activeDraft?.Status == C.DraftStatus.Rejected)
+                                        {
+                                            <Badge Color="Color.Danger" Class="ms-1">Rejected</Badge>
+                                        }
+
+                                        <Button Size="Size.Small" Color="Color.Danger" Class="ms-2" Clicked="OpenDeleteConfirm">
                                             <Icon Name="IconName.Delete" class="me-1" /> Delete
                                         </Button>
                                     }
@@ -129,6 +133,19 @@ else
                 </CardHeader>
 
                 <CardBody>
+                    @if (activeDraft?.Status == C.DraftStatus.Submitted)
+                    {
+                        <Alert Color="Color.Warning">
+                            Changes are waiting for admin review. Editing is locked.
+                        </Alert>
+                    }
+                    @if (activeDraft?.Status == C.DraftStatus.Rejected && !string.IsNullOrWhiteSpace(activeDraft.ReviewerNote))
+                    {
+                        <Alert Color="Color.Danger">
+                            <b>Rejected:</b> @activeDraft.ReviewerNote
+                        </Alert>
+                    }
+
                     <!-- comments -->
                     <div class="mb-3 d-flex">
                         <TextEdit Class="flex-grow-1" @bind-Text="newComment" Placeholder="Write a Comment..." />
@@ -155,7 +172,7 @@ else
                                                 }
                                                 @if (c.CreationTime != default)
                                                 {
-                                                    <text> · @c.CreationTime.ToLocalTime().ToString("g")</text>
+                                                    <text> · @FormatLocal(c.CreationTime, "g")</text>
                                                 }
                                             </div>
                                         </div>
@@ -186,11 +203,24 @@ else
                     </CardHeader>
                     <br />
                     <CardBody class="pb-2">
+                        @if (draftLocked)
+                        {
+                            <Alert Color="Color.Warning" Class="mx-4">
+                                This draft is submitted and waiting for admin approval. You can't edit it now.
+                            </Alert>
+                        }
+                        @if (activeDraft?.Status == C.DraftStatus.Rejected && !string.IsNullOrWhiteSpace(activeDraft.ReviewerNote))
+                        {
+                            <Alert Color="Color.Danger" Class="mx-4">
+                                <b>Reviewer note:</b> @activeDraft.ReviewerNote
+                            </Alert>
+                        }
+
                         <div class="row g-3">
                             <div class="col-12 px-4">
                                 <Field>
                                     <FieldLabel>Title</FieldLabel>
-                                    <TextEdit @bind-Text="draftForm.Title" Placeholder="Title..." />
+                                    <TextEdit @bind-Text="draftForm.Title" Placeholder="Title..." Disabled="@draftLocked" />
                                 </Field>
                             </div>
 
@@ -201,7 +231,8 @@ else
                                                   @bind-HTML="draftForm.Content"
                                                   @key="editingId"
                                                   Placeholder="Content..." Style="height:360px"
-                                                  Class="form-control bg-white border-0">
+                                                  Class="form-control bg-white border-0"
+                                                  ReadOnly="@draftLocked">
                                         <RichTextEditToolbar />
                                         <RichTextEditContent />
                                     </RichTextEdit>
@@ -214,7 +245,8 @@ else
                                     <Select TValue="Guid" Multiple="true"
                                             SelectedValues="@selectedDraftTagIds"
                                             SelectedValuesChanged="OnDraftTagsChanged"
-                                            Class="form-select bg-white border-0">
+                                            Class="form-select bg-white border-0"
+                                            Disabled="@draftLocked">
                                         @foreach (var t in tags)
                                         {
                                             <SelectItem Value="@t.Id">@t.Name</SelectItem>
@@ -226,9 +258,13 @@ else
                     </CardBody>
 
                     <CardFooter class="bg-transparent border-0 d-flex justify-content-end gap-2 px-4 pb-3">
+                        @if (!string.IsNullOrEmpty(draftError))
+                        {
+                            <div class="text-danger me-auto">@draftError</div>
+                        }
                         <Button Color="Color.Secondary" Outline Clicked="() => draftVisible = false">Cancel</Button>
-                        <Button Color="Color.Light" Clicked="SaveDraft">Save draft</Button>
-                        <Button Color="Color.Primary" Clicked="PublishFromDraft">Publish changes</Button>
+                        <Button Color="Color.Light" Clicked="SaveDraftAndClose" Disabled="@(savingDraft || draftLocked)">Save draft</Button>
+                        <Button Color="Color.Primary" Clicked="SubmitFromDraft" Disabled="@draftLocked">Submit for approval</Button>
                     </CardFooter>
                 </Card>
             </div>
@@ -251,7 +287,7 @@ else
         </ModalBody>
     </Modal>
 
-    <!-- DELETE MODAL (mevcut) -->
+    <!-- DELETE MODAL -->
     <Modal @bind-Visible="deleteVisible" Size="ModalSize.Default" Centered="true" Backdrop="true" Scrollable="true" Class="p-2">
         <ModalBody class="p-3">
             <div class="mx-auto my-3" style="max-width: 860px;">
@@ -300,6 +336,10 @@ else
     private RichTextEdit? richte;
     private Guid editingId = Guid.NewGuid();
 
+    private C.BlogPostDraftDto? activeDraft;   // mevcut aktif taslağım
+    private bool draftLocked;                   // Submitted ise true
+    private string? draftError;
+
     // delete
     private bool deleteVisible;
     private bool deleting;
@@ -341,7 +381,11 @@ else
 
         tags = (await AppSvc.GetAllTagsAsync()).Items?.ToList() ?? new();
 
-        // load latest version preview
+        // aktif taslak durumunu yükle (banner/rozet için)
+        activeDraft = await AppSvc.GetDraftAsync(id);
+        draftLocked = activeDraft?.Status == C.DraftStatus.Submitted;
+
+        // latest version preview
         var vers = await AppSvc.GetVersionsAsync(id, 1);
         latestVersion = vers.Items?.FirstOrDefault();
     }
@@ -366,7 +410,6 @@ else
     {
         if (!firstRender) return;
 
-        // ilk 60 saniye her saniye tazele, sonra dakikada bir
         _ = Task.Run(async () =>
         {
             var tickEvery = TimeSpan.FromSeconds(1);
@@ -380,7 +423,7 @@ else
                     _nowUtc = DateTime.UtcNow;
                     await InvokeAsync(StateHasChanged);
 
-                    if (++ticks == 60) // 1 dk sonra daha seyrek güncelle
+                    if (++ticks == 60)
                     {
                         _agoTimer.Dispose();
                         _agoTimer = new System.Threading.PeriodicTimer(TimeSpan.FromMinutes(1));
@@ -416,6 +459,18 @@ else
         if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
         return $"{(int)diff.TotalDays}d ago";
     }
+
+    private static DateTime AsLocal(DateTime dt)
+        => dt.Kind switch
+        {
+            DateTimeKind.Utc => dt.ToLocalTime(),
+            DateTimeKind.Unspecified => DateTime.SpecifyKind(dt, DateTimeKind.Local),
+            _ => dt
+        };
+
+    private static string FormatLocal(DateTime dt, string fmt = "g")
+        => AsLocal(dt).ToString(fmt);
+
     private static string ShortenHtml(string html, int maxChars)
     {
         if (string.IsNullOrEmpty(html)) return string.Empty;
@@ -491,17 +546,19 @@ else
     {
         if (post is null) return;
 
-        // 1) mevcut taslak var mı?
-        var existing = await AppSvc.GetDraftAsync(post.Id);
+        draftError = null;
 
-        if (existing is not null)
+        // 1) mevcut taslak var mı?
+        activeDraft = await AppSvc.GetDraftAsync(post.Id);
+
+        if (activeDraft is not null)
         {
             draftForm = new C.CreateUpdateBlogPostDraftDto
             {
                 BlogPostId = post.Id,
-                Title = existing.Title,
-                Content = existing.Content,
-                TagIds = existing.Tags?.Select(t => t.Id).ToList() ?? new List<Guid>()
+                Title = activeDraft.Title,
+                Content = activeDraft.Content,
+                TagIds = activeDraft.Tags?.Select(t => t.Id).ToList() ?? new List<Guid>()
             };
         }
         else
@@ -518,6 +575,8 @@ else
 
         selectedDraftTagIds = draftForm.TagIds;
         editingId = Guid.NewGuid();
+
+        draftLocked = activeDraft?.Status == C.DraftStatus.Submitted;
 
         draftVisible = true;
         await InvokeAsync(StateHasChanged);
@@ -536,29 +595,62 @@ else
 
     private async Task SaveDraft()
     {
-        if (post is null) return;
+        draftError = null;
+
+        if (post is null || draftLocked) return;
+
         if (richte is not null)
             draftForm.Content = await richte.GetHtmlAsync();
 
         draftForm.TagIds = selectedDraftTagIds.ToList();
-        var saved = await AppSvc.UpsertDraftAsync(draftForm);
 
-        // formu geri doldur (özellikle tag listesi için)
-        draftForm.Title = saved.Title;
-        draftForm.Content = saved.Content;
-        selectedDraftTagIds = saved.Tags?.Select(t => t.Id).ToList() ?? new List<Guid>();
+        try
+        {
+            var saved = await AppSvc.UpsertDraftAsync(draftForm);
+
+            // formu geri doldur (özellikle tag listesi için)
+            draftForm.Title = saved.Title;
+            draftForm.Content = saved.Content;
+            selectedDraftTagIds = saved.Tags?.Select(t => t.Id).ToList() ?? new List<Guid>();
+
+            activeDraft = saved;
+        }
+        catch (Volo.Abp.BusinessException ex)
+        {
+            draftError = ex.Message;
+        }
     }
 
-    private async Task PublishFromDraft()
+    private bool savingDraft;
+
+    private async Task SaveDraftAndClose()
+    {
+        if (savingDraft) return;
+        savingDraft = true;
+        try
+        {
+            await SaveDraft();
+            draftVisible = false;
+            await InvokeAsync(StateHasChanged);
+        }
+        finally
+        {
+            savingDraft = false;
+        }
+    }
+
+    // NEW: submit to admin instead of publish
+    private async Task SubmitFromDraft()
     {
         if (post is null) return;
-        await SaveDraft();                 // önce taslağı kaydet
-        await AppSvc.PublishDraftAsync(post.Id);
 
-        // postu ve son sürümü yenile
-        post = await AppSvc.GetAsync(post.Id);
-        var vers = await AppSvc.GetVersionsAsync(post.Id, 1);
-        latestVersion = vers.Items?.FirstOrDefault();
+        await SaveDraft(); // son değişiklikleri kaydet
+
+        await AppSvc.SubmitDraftForApprovalAsync(post.Id);
+
+        // durumu yeniden yükle ve kilitle
+        activeDraft = await AppSvc.GetDraftAsync(post.Id);
+        draftLocked = activeDraft?.Status == C.DraftStatus.Submitted;
 
         draftVisible = false;
         StateHasChanged();
@@ -580,7 +672,7 @@ else
         StateHasChanged();
     }
 
-    // delete flow (mevcut kodunla aynı ancak kısaltıldı)
+    // delete flow
     private Task OpenDeleteConfirm() { deleteError = null; deleteVisible = true; return Task.CompletedTask; }
 
     private async Task ConfirmDelete()

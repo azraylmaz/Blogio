@@ -3,6 +3,7 @@ using System;
 using Blogio.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Volo.Abp.EntityFrameworkCore;
@@ -12,9 +13,11 @@ using Volo.Abp.EntityFrameworkCore;
 namespace Blogio.Migrations
 {
     [DbContext(typeof(BlogioDbContext))]
-    partial class BlogioDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250827110244_AddDraftStatus")]
+    partial class AddDraftStatus
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -139,12 +142,6 @@ namespace Blogio.Migrations
 
                     b.Property<Guid>("OwnerUserId")
                         .HasColumnType("uuid");
-
-                    b.Property<string>("ReviewerNote")
-                        .HasColumnType("text");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer");
 
                     b.Property<string>("Title")
                         .IsRequired()

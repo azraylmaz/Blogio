@@ -151,6 +151,7 @@
 <!------------ MODAL (New Blog Post) ------------>
 <AuthorizeView Roles="admin, author">
     <Authorized>
+        <Validations @ref="formValidations">
         <Modal @bind-Visible="editVisible"
                Size="ModalSize.Default"
                Centered="true"
@@ -185,10 +186,11 @@
                                     <Field>
                                         <FieldLabel>Content</FieldLabel>
                                         <Validation Validator="@ValidateContent">
-                                            <RichTextEdit @bind-HTML="form.Content" Rows="8" Placeholder="Content..."
-                                                      Class="form-control bg-white border-0" Style="height: 360px"/>
+                                            <RichTextEdit @ref="richte" @bind-HTML="form.Content" Rows="8" Placeholder="Content..."
+                                                      Class="form-control bg-white border-0" Style="height: 360px">
                                                       <RichTextEditToolbar />
                                                       <RichTextEditContent />
+                                           </RichTextEdit>
                                         </Validation>
                                     </Field>
                                 </div>
@@ -258,6 +260,10 @@
                         </CardBody>
 
                         <CardFooter Class="bg-transparent border-0 d-flex justify-content-end gap-2 px-4 pb-4">
+                                @if (!string.IsNullOrEmpty(saveError))
+                                {
+                                    <div class="text-danger me-auto">@saveError</div>
+                                }
                             <Button Color="Color.Secondary" Outline Clicked="() => editVisible = false">Cancel</Button>
                             <Button Color="Color.Primary" Clicked="@Save">Save</Button>
                         </CardFooter>
@@ -265,6 +271,7 @@
                 </div>
             </ModalBody>
         </Modal>
+        </Validations>
     </Authorized>
 </AuthorizeView>
 
@@ -328,8 +335,9 @@
     }
     private void ValidateContent(ValidatorEventArgs e)
     {
-        var v = e.Value?.ToString();
-        e.Status = !string.IsNullOrWhiteSpace(v) ? ValidationStatus.Success : ValidationStatus.Error;
+        var v = form?.Content; // e.Value yerine modelden oku
+        var hasText = !string.IsNullOrWhiteSpace(v) && v!.Trim() != "<p><br></p>";
+        e.Status = hasText ? ValidationStatus.Success : ValidationStatus.Error;
         if (e.Status == ValidationStatus.Error) e.ErrorText = "İçerik zorunlu";
     }
     private void ValidateAuthorRequired(ValidatorEventArgs e)
@@ -421,19 +429,25 @@
 
     private void CreateNew()
     {
+        saveError = null;
         editingId = null;
-        form = new C.CreateUpdateBlogPostDto { Title = "", Content = "", TagIds = new() };
-        if (_isAdmin)
+
+        form = new C.CreateUpdateBlogPostDto
         {
-            selectedAuthorIdInForm = null;   // admin istediğini seçsin
-        }
-        else
-        {
-            // author ise kendisi sabit
-            selectedAuthorIdInForm = _myId;
-            form.AuthorId = _myId ?? Guid.Empty;
-        }
+            Title = string.Empty,
+            Content = string.Empty,
+            TagIds = new List<Guid>(),
+            // admin değilse author = ben
+            AuthorId = _isAdmin ? Guid.Empty : (_myId ?? Guid.Empty),
+            IsPublished = false
+        };
+
+        selectedTagIds = Array.Empty<Guid>();
         isPublishedSwitch = false;
+
+        // admin ise seçmesini iste, author ise otomatik kendisi
+        selectedAuthorIdInForm = _isAdmin ? (Guid?)null : _myId;
+
         editVisible = true;
     }
 
@@ -458,21 +472,75 @@
         editVisible = true;
     }
 
+    private string? saveError;
+    private RichTextEdit? richte;
+
     private async Task Save()
     {
-        if (formValidations is not null && !await formValidations.ValidateAll()) return;
-        if (!selectedAuthorIdInForm.HasValue) return;
+        saveError = null;
 
-        form.AuthorId = selectedAuthorIdInForm.Value;
+        // editördeki en güncel HTML’i al
+        if (richte is not null)
+            form.Content = await richte.GetHtmlAsync();
+
+        // minimum client-side kontroller
+        if (string.IsNullOrWhiteSpace(form.Title))
+        {
+            saveError = "Title is required.";
+            return;
+        }
+
+        var content = (form.Content ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(content) || content == "<p><br></p>")
+        {
+            saveError = "Content is required.";
+            return;
+        }
+
+        // tag & author garanti
+        form.TagIds = selectedTagIds?.ToList() ?? new List<Guid>();
+
+        var authorId = selectedAuthorIdInForm ?? _myId;
+        if (!authorId.HasValue || authorId == Guid.Empty)
+        {
+            saveError = "Please choose an author.";
+            return;
+        }
+
+        form.AuthorId = authorId.Value;
         form.IsPublished = isPublishedSwitch;
 
-        if (editingId is null)
-            await AppSvc.CreateAsync(form);
-        else
-            await AppSvc.UpdateAsync(editingId.Value, form);
+        try
+        {
+            if (editingId is null)
+                await AppSvc.CreateAsync(form);
+            else
+                await AppSvc.UpdateAsync(editingId.Value, form);
 
-        editVisible = false;
-        await Search();
+            editVisible = false;
+            await Search();   // grid’i yenile
+        }
+        // ABP’nin temel hata tiplerini sade şekilde yakala
+        catch (Volo.Abp.Http.Client.AbpRemoteCallException ex)
+        {
+            var val = ex.Error?.ValidationErrors;
+            saveError = (val != null && val.Length > 0)
+                ? string.Join(" • ", val.Select(v => v.Message))
+                : (!string.IsNullOrWhiteSpace(ex.Error?.Details) ? ex.Error!.Details : ex.Message);
+        }
+        catch (Volo.Abp.Validation.AbpValidationException ex)
+        {
+            saveError = string.Join(" • ", ex.ValidationErrors.Select(v => v.ErrorMessage));
+        }
+        catch (Volo.Abp.BusinessException ex)
+        {
+            saveError = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            saveError = ex.Message;
+        }
+
     }
 
     private async Task Delete(Guid id)

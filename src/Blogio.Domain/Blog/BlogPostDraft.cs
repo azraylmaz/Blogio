@@ -16,7 +16,13 @@ namespace Blogio.Blog
         public string Title { get; set; } = default!;
         public string Content { get; set; } = default!;
         public bool IsActive { get; set; }
+        // mevcut alanların yanına ekle:
+        public DraftStatus Status { get; set; } = DraftStatus.Editing;
+
+        // (opsiyonel) admin geri bildirimi
+        public string? ReviewerNote { get; set; }
 
         public ICollection<BlogPostDraftTag> Tags { get; set; } = new List<BlogPostDraftTag>();
+
     }
 }

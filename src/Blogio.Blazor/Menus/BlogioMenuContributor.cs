@@ -1,10 +1,12 @@
-﻿using System.Threading.Tasks;
-using Blogio.Localization;
+﻿using Blogio.Localization;
 using Blogio.MultiTenancy;
+using Microsoft.Extensions.DependencyInjection;
+using System.Threading.Tasks;
 using Volo.Abp.Identity.Blazor;
 using Volo.Abp.SettingManagement.Blazor.Menus;
 using Volo.Abp.TenantManagement.Blazor.Navigation;
 using Volo.Abp.UI.Navigation;
+using Volo.Abp.Users;
 
 namespace Blogio.Blazor.Menus;
 
@@ -53,6 +55,20 @@ public class BlogioMenuContributor : IMenuContributor
                 icon: "fas fa-user-edit"
             )
         );
+
+        var currentUser = context.ServiceProvider.GetRequiredService<ICurrentUser>();
+        if (currentUser.IsInRole("admin"))
+        {
+            context.Menu.Items.Insert(
+                3,
+                new ApplicationMenuItem(
+                    name: "Blogio.PendingDrafts",
+                    displayName: l["Pending Drafts"],
+                    url: "/admin/pending-drafts",
+                    icon: "fas fa-hourglass-half"
+                )
+            );
+        }
 
         if (MultiTenancyConsts.IsEnabled)
         {

@@ -169,9 +169,16 @@ namespace Blogio.Blog
                         .WithData("TagIds", string.Join(",", missing));
             }
 
-            var entity = ObjectMapper.Map<CreateUpdateBlogPostDto, BlogPost>(input);
-            entity.IsPublished = input.IsPublished ?? false;
-            entity.LikeCount = 0;
+            var entity = new BlogPost(
+                    GuidGenerator.Create(),
+                    input.Title,
+                    input.Content ?? string.Empty,
+                    input.AuthorId
+                )
+            {
+                IsPublished = input.IsPublished ?? false,
+                LikeCount = 0
+            };
 
             entity = await _blogRepository.InsertAsync(entity, autoSave: true);
 
@@ -510,14 +517,25 @@ namespace Blogio.Blog
                     OwnerUserId = uid,
                     Title = input.Title,
                     Content = input.Content,
-                    IsActive = true
+                    IsActive = true,
+                    Status = DraftStatus.Editing
                 };
                 draft = await _draftRepository.InsertAsync(draft, autoSave: true);
             }
             else
             {
+                // Pending ise kilitli
+                if (draft.Status == DraftStatus.Submitted)
+                    throw new BusinessException("Draft.PendingApproval")
+                        .WithData("Message", "Draft is waiting for admin approval.");
+
                 draft.Title = input.Title;
                 draft.Content = input.Content;
+
+                // Reddedilmişse tekrar düzenlemeye başladı => Editing'e çek
+                if (draft.Status == DraftStatus.Rejected)
+                    draft.Status = DraftStatus.Editing;
+
                 await _draftRepository.UpdateAsync(draft, autoSave: true);
             }
 
@@ -547,6 +565,41 @@ namespace Blogio.Blog
             return ObjectMapper.Map<BlogPostDraft, BlogPostDraftDto>(reloaded);
         }
 
+        [Authorize(Roles = "admin,author")]
+        public async Task SubmitDraftForApprovalAsync(Guid blogPostId)
+        {
+            var post = await _blogRepository.GetAsync(blogPostId);
+            if (!CanManagePost(post)) throw new AbpAuthorizationException();
+
+            var uid = Me ?? throw new AbpAuthorizationException();
+
+            var draft = await (await _draftRepository.GetQueryableAsync())
+                .Where(d => d.BlogPostId == blogPostId && d.OwnerUserId == uid && d.IsActive)
+                .FirstOrDefaultAsync();
+
+            if (draft is null)
+                throw new BusinessException("DraftNotFound");
+
+            if (draft.Status == DraftStatus.Submitted)
+                return; // zaten beklemede
+
+            draft.Status = DraftStatus.Submitted;
+            await _draftRepository.UpdateAsync(draft, autoSave: true);
+        }
+
+        [Authorize(Roles = "admin")]
+        public async Task<ListResultDto<BlogPostDraftDto>> GetPendingDraftsAsync()
+        {
+            var q = (await _draftRepository.GetQueryableAsync())
+                .Where(d => d.IsActive && d.Status == DraftStatus.Submitted)
+                .Include(d => d.Tags).ThenInclude(t => t.Tag);
+
+            var list = await AsyncExecuter.ToListAsync(q);
+            var dtos = ObjectMapper.Map<List<BlogPostDraft>, List<BlogPostDraftDto>>(list);
+            return new ListResultDto<BlogPostDraftDto>(dtos);
+        }
+
+
         public async Task DeleteDraftAsync(Guid blogPostId)
         {
             var uid = Me ?? throw new AbpAuthorizationException();
@@ -557,71 +610,81 @@ namespace Blogio.Blog
             await _draftRepository.DeleteAsync(draft);
         }
 
-        public async Task PublishDraftAsync(Guid blogPostId)
+        
+        [Authorize(Roles = "admin")]
+        public async Task ApproveDraftAsync(Guid draftId)
         {
-            var post = await _blogRepository.GetAsync(blogPostId);
-            if (!CanManagePost(post)) throw new AbpAuthorizationException();
-
-            var uid = Me ?? throw new AbpAuthorizationException();
             var draft = await (await _draftRepository.GetQueryableAsync())
-                .Where(d => d.BlogPostId == blogPostId && d.OwnerUserId == uid && d.IsActive)
+                .Where(d => d.Id == draftId)
                 .Include(d => d.Tags)
                 .FirstOrDefaultAsync();
 
-            if (draft is null)
-                throw new BusinessException("DraftNotFound");
+            if (draft is null || !draft.IsActive || draft.Status != DraftStatus.Submitted)
+                throw new BusinessException("DraftNotInSubmittedState");
 
-            // 1) Mevcut yayındaki postu Version olarak arşivle
+            var post = await _blogRepository.GetAsync(draft.BlogPostId);
+
+            // 1) Şu anki canlı içeriği Version olarak arşivle (sende zaten vardı)
             var lastNo = await (await _versionRepository.GetQueryableAsync())
-                .Where(v => v.BlogPostId == blogPostId)
+                .Where(v => v.BlogPostId == post.Id)
                 .MaxAsync(v => (int?)v.Version) ?? 0;
 
             var version = new BlogPostVersion
             {
-                BlogPostId = blogPostId,
+                BlogPostId = post.Id,
                 Version = lastNo + 1,
                 Title = post.Title,
                 Content = post.Content
             };
             await _versionRepository.InsertAsync(version, autoSave: true);
 
-            var currentPostTags = await _blogPostTagRepository.GetListAsync(x => x.BlogPostId == blogPostId);
+            var currentPostTags = await _blogPostTagRepository.GetListAsync(x => x.BlogPostId == post.Id);
             foreach (var link in currentPostTags)
-            {
-                await _versionTagRepository.InsertAsync(
-                    new BlogPostVersionTag
-                    {
-                        BlogPostVersionId = version.Id,
-                        TagId = link.TagId
-                    },
-                    autoSave: false);
-            }
+                await _versionTagRepository.InsertAsync(new BlogPostVersionTag
+                {
+                    BlogPostVersionId = version.Id,
+                    TagId = link.TagId
+                }, autoSave: false);
             await CurrentUnitOfWork.SaveChangesAsync();
 
-            // 2) Post’u taslak içeriği ile güncelle
+            // 2) Post’u taslakla güncelle
             post.Title = draft.Title;
             post.Content = draft.Content;
             post.IsPublished = true;
             await _blogRepository.UpdateAsync(post, autoSave: true);
 
-            // 3) Post tag'lerini taslak tag'leriyle eşitle
+            // 3) Tag sync
             var draftTagIds = draft.Tags.Select(t => t.TagId).Distinct().ToList();
             var postTagIds = currentPostTags.Select(x => x.TagId).ToList();
-
             var toAdd = draftTagIds.Except(postTagIds).ToList();
             var toRemove = postTagIds.Except(draftTagIds).ToList();
 
             if (toRemove.Count > 0)
-                await _blogPostTagRepository.DeleteAsync(x => x.BlogPostId == blogPostId && toRemove.Contains(x.TagId));
+                await _blogPostTagRepository.DeleteAsync(x => x.BlogPostId == post.Id && toRemove.Contains(x.TagId));
 
             foreach (var tid in toAdd)
-                await _blogPostTagRepository.InsertAsync(new BlogPostTag(blogPostId, tid), autoSave: false);
+                await _blogPostTagRepository.InsertAsync(new BlogPostTag(post.Id, tid), autoSave: false);
 
             await CurrentUnitOfWork.SaveChangesAsync();
 
-            // 4) Taslağı kaldır
-            await _draftRepository.DeleteAsync(draft);
+            // 4) Taslağı pasifle/işaretle
+            draft.Status = DraftStatus.Approved;
+            draft.IsActive = false;
+            await _draftRepository.UpdateAsync(draft, autoSave: true);
         }
+
+        [Authorize(Roles = "admin")]
+        public async Task RejectDraftAsync(Guid draftId, string? note)
+        {
+            var draft = await _draftRepository.GetAsync(draftId);
+            if (draft.Status != DraftStatus.Submitted)
+                throw new BusinessException("DraftNotInSubmittedState");
+
+            draft.Status = DraftStatus.Rejected;      // yazar tekrar düzenleyebilir
+            draft.ReviewerNote = note;
+            await _draftRepository.UpdateAsync(draft, autoSave: true);
+        }
+
 
 
         // ---------------- Version ----------------

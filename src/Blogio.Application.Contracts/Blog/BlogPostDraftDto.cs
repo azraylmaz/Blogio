@@ -16,6 +16,9 @@ namespace Blogio.Blog
         public bool IsActive { get; set; }
         public DateTime CreationTime { get; set; }
 
+        public DraftStatus Status { get; set; }         
+        public string? ReviewerNote { get; set; }
+
         public List<TagDto> Tags { get; set; } = new();
     }
 

@@ -47,12 +47,17 @@ namespace Blogio.Blog
         // --- Authors ---
         Task<ListResultDto<AuthorDto>> GetAuthorsAsync();
 
+        // ----- Draft approval --------
+        Task SubmitDraftForApprovalAsync(Guid blogPostId);                // yazar: onaya gönder
+        Task<ListResultDto<BlogPostDraftDto>> GetPendingDraftsAsync();    // admin: bekleyenler
+        Task ApproveDraftAsync(Guid draftId);                              // admin: onayla
+        Task RejectDraftAsync(Guid draftId, string? note);
 
         // DRAFT
         Task<BlogPostDraftDto?> GetDraftAsync(Guid blogPostId);                           // aktif taslağım
         Task<BlogPostDraftDto> UpsertDraftAsync(CreateUpdateBlogPostDraftDto input);      // oluştur/güncelle
         Task DeleteDraftAsync(Guid blogPostId);                                           // taslağı sil
-        Task PublishDraftAsync(Guid blogPostId);                                          // taslağı yayına al (+versiyon üret)
+
 
         // VERSIONS
         Task<ListResultDto<BlogPostVersionDto>> GetVersionsAsync(Guid blogPostId, int maxCount = 10);

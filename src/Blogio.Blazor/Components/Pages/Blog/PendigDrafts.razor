@@ -1,0 +1,174 @@
+﻿@page "/admin/pending-drafts"
+@inject C.IBlogAppService AppSvc
+@using C = Blogio.Blog
+
+<PageTitle>Pending Drafts</PageTitle>
+
+<h4 class="mb-3">Pending drafts for approval</h4>
+
+@if (items is null)
+{
+    <p>Loading...</p>
+}
+else if (items.Count == 0)
+{
+    <Alert Color="Color.Info">No pending drafts 🎉</Alert>
+}
+else
+{
+    <DataGrid TItem="C.BlogPostDraftDto"
+              Data="@items"
+              RowClickable="true"
+              RowClicked="OnRowClicked">
+        <DataGridColumns>
+            <DataGridColumn TItem="C.BlogPostDraftDto" Field="Title" Caption="Title" />
+            <DataGridColumn TItem="C.BlogPostDraftDto" Caption="Author">
+                <DisplayTemplate Context="row">
+                    @GetAuthorName(row.OwnerUserId)
+                </DisplayTemplate>
+            </DataGridColumn>
+            <DataGridColumn TItem="C.BlogPostDraftDto" Caption="Submitted">
+                <DisplayTemplate Context="row">
+                    @row.CreationTime.ToLocalTime().ToString("g")
+                </DisplayTemplate>
+            </DataGridColumn>
+
+            <DataGridCommandColumn TItem="C.BlogPostDraftDto">
+                <DisplayTemplate Context="row">
+                    <Button Size="Size.Small" Color="Color.Light" Clicked="@(() => Open(row))">View</Button>
+                    <Button Size="Size.Small" Color="Color.Success" Class="ms-2" Clicked="@(() => Approve(row.Id))" Disabled="@busy">Approve</Button>
+                    <Button Size="Size.Small" Color="Color.Danger" Class="ms-2" Clicked="@(() => Reject(row.Id))" Disabled="@busy">Reject</Button>
+                </DisplayTemplate>
+            </DataGridCommandColumn>
+        </DataGridColumns>
+    </DataGrid>
+}
+
+<!-- VIEW / APPROVAL MODAL -->
+<Modal @bind-Visible="modalVisible" Size="ModalSize.Large" Centered="true" Scrollable="true" Backdrop="true" Class="p-2">
+    <ModalBody class="p-4">
+        <div class="mx-auto my-3" style="max-width: 860px;">
+            <Card class="shadow-lg rounded-4 border-0">
+                <CardHeader class="bg-transparent border-0" Style="background:#f0f0f0; color:#212529;">
+                    <div class="d-flex flex-wrap justify-content-between align-items-end">
+                        <div>
+                            <h5 class="mb-1">@selected?.Title</h5>
+                            <div class="text-muted small">
+                                @GetAuthorName(selected?.OwnerUserId ?? Guid.Empty)
+                                · @selected?.CreationTime.ToLocalTime().ToString("f")
+                            </div>
+                            @if (selected?.Tags?.Any() == true)
+                            {
+                                <div class="mt-2">
+                                    @foreach (var t in selected.Tags)
+                                    {
+                                        <span class="badge rounded-pill text-secondary border me-1">#@t.Name</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </CardHeader>
+                <br />
+                <CardBody class="pb-2">
+                    <div class="col-12 px-4">
+                        @((MarkupString)(selected?.Content ?? string.Empty))
+                    </div>
+                </CardBody>
+
+                <CardFooter class="bg-transparent border-0 d-flex justify-content-end gap-2 px-4 pb-3">
+                    <div class="d-flex flex-column gap-2 w-100">
+                        <TextEdit @bind-Text="rejectNote" Placeholder="(optional) rejection note..." />
+                        <div class="d-flex justify-content-end gap-2">
+                            <Button Color="Color.Secondary" Outline Clicked="() => modalVisible = false">Close</Button>
+                            <Button Color="Color.Success" Clicked="ApproveSelected" Disabled="@busy">Approve</Button>
+                            <Button Color="Color.Danger" Clicked="RejectSelected" Disabled="@busy">Reject</Button>
+                        </div>
+                    </div>
+                </CardFooter>
+            </Card>
+        </div>
+    </ModalBody>
+</Modal>
+
+@code {
+    private List<C.BlogPostDraftDto>? items;
+    private Dictionary<Guid, string> authorNames = new();
+
+    private C.BlogPostDraftDto? selected;
+    private bool modalVisible;
+    private string? rejectNote;
+    private bool busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Reload();
+    }
+
+    private async Task Reload()
+    {
+        items = (await AppSvc.GetPendingDraftsAsync()).Items.ToList();
+
+        // Author adlarını sözlükte tut (OwnerUserId -> "Name Surname" / UserName)
+        var authors = (await AppSvc.GetAuthorsAsync()).Items?.ToList() ?? new();
+        authorNames = authors.ToDictionary(
+            a => a.Id,
+            a => string.IsNullOrWhiteSpace(a.Name) && string.IsNullOrWhiteSpace(a.Surname)
+                    ? (a.UserName ?? a.Email ?? a.Id.ToString())
+                    : $"{a.Name} {a.Surname}".Trim());
+    }
+
+    private string GetAuthorName(Guid id)
+        => authorNames.TryGetValue(id, out var n) ? n : id.ToString();
+
+    private void OnRowClicked(DataGridRowMouseEventArgs<C.BlogPostDraftDto> e)
+    {
+        if (e.Item is null) return;
+        Open(e.Item);
+    }
+
+    private void Open(C.BlogPostDraftDto row)
+    {
+        selected = row;
+        rejectNote = null;
+        modalVisible = true;
+    }
+
+    private async Task ApproveSelected()
+    {
+        if (selected is null) return;
+        await Approve(selected.Id);
+        modalVisible = false;
+    }
+
+    private async Task RejectSelected()
+    {
+        if (selected is null) return;
+        await Reject(selected.Id, rejectNote);
+        modalVisible = false;
+    }
+
+    private async Task Approve(Guid id)
+    {
+        busy = true;
+        try
+        {
+            await AppSvc.ApproveDraftAsync(id);
+            await Reload();
+            StateHasChanged();
+        }
+        finally { busy = false; }
+    }
+
+    private async Task Reject(Guid id, string? note = null)
+    {
+        busy = true;
+        try
+        {
+            await AppSvc.RejectDraftAsync(id, string.IsNullOrWhiteSpace(note) ? "Needs changes" : note);
+            await Reload();
+            StateHasChanged();
+        }
+        finally { busy = false; }
+    }
+}

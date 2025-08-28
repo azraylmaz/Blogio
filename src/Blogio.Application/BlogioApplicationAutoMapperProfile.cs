@@ -22,10 +22,6 @@ public class BlogioApplicationAutoMapperProfile : Profile
             .ForMember(d => d.BlogPostTags, opt => opt.MapFrom(s => s.BlogPostTags.Select(x => x.Tag)))
             .ForMember(d => d.Comments, opt => opt.MapFrom(s => s.Comments));
 
-        CreateMap<CreateUpdateBlogPostDto, BlogPost>(MemberList.None)
-            .ForMember(d => d.BlogPostTags, opt => opt.Ignore())
-            .ForMember(d => d.Comments, opt => opt.Ignore());
-
         CreateMap<Comment, CommentDto>()
             .ForMember(d => d.CreatorUserName, opt => opt.Ignore());
 
