@@ -119,9 +119,20 @@ else
                                         }
                                         else if (activeDraft?.Status == C.DraftStatus.Rejected)
                                         {
-                                            <Badge Color="Color.Danger" Class="ms-1">Rejected</Badge>
+                                            if (!string.IsNullOrWhiteSpace(activeDraft?.ReviewerNote))
+                                            {
+                                                <Button Size="Size.Small"
+                                                        Color="Color.Danger"
+                                                        Class="ms-1"
+                                                        Clicked="ShowRejectNote">
+                                                    Rejected
+                                                </Button>
+                                            }
+                                            else
+                                            {
+                                                <Badge Color="Color.Danger" Class="ms-1">Rejected</Badge>
+                                            }
                                         }
-
                                         <Button Size="Size.Small" Color="Color.Danger" Class="ms-2" Clicked="OpenDeleteConfirm">
                                             <Icon Name="IconName.Delete" class="me-1" /> Delete
                                         </Button>
@@ -139,13 +150,6 @@ else
                             Changes are waiting for admin review. Editing is locked.
                         </Alert>
                     }
-                    @if (activeDraft?.Status == C.DraftStatus.Rejected && !string.IsNullOrWhiteSpace(activeDraft.ReviewerNote))
-                    {
-                        <Alert Color="Color.Danger">
-                            <b>Rejected:</b> @activeDraft.ReviewerNote
-                        </Alert>
-                    }
-
                     <!-- comments -->
                     <div class="mb-3 d-flex">
                         <TextEdit Class="flex-grow-1" @bind-Text="newComment" Placeholder="Write a Comment..." />
@@ -282,7 +286,11 @@ else
                         <div class="text-muted small mb-3">@latestVersion.CreationTime.ToLocalTime().ToString("f")</div>
                         <div style="line-height:1.7">@((MarkupString)latestVersion.Content)</div>
                     }
+                    <CardFooter class="bg-transparent border-0 d-flex justify-content-end gap-2 px-4 pb-3">
+                        <Button Color="Color.Secondary" Outline Clicked="() => versionVisible = false">Close</Button>
+                    </CardFooter>
                 </Card>
+                
             </div>
         </ModalBody>
     </Modal>
@@ -308,6 +316,33 @@ else
             </div>
         </ModalBody>
     </Modal>
+
+    <!-- REJECTION NOTE MODAL -->
+    <Modal @bind-Visible="rejectNoteVisible"
+           Size="ModalSize.Default"
+           Centered="true"
+           Backdrop="true"
+           Scrollable="true"
+           Class="p-2">
+        <ModalBody class="p-3">
+            <div class="mx-auto my-3" style="max-width: 640px;">
+                <Card class="shadow-lg rounded-4 border-0" Style="background:#fff; color:#212529;">
+                    <CardHeader class="bg-transparent border-0 pt-3 pb-0">
+                        <span class="fw-semibold">Rejection note</span>
+                    </CardHeader>
+                    <CardBody>
+                        <Alert Color="Color.Danger" Class="mb-0">
+                            @rejectNoteText
+                        </Alert>
+                    </CardBody>
+                    <CardFooter class="bg-transparent border-0 d-flex justify-content-end gap-2 px-4 pb-3">
+                        <Button Color="Color.Secondary" Outline Clicked="() => rejectNoteVisible = false">Close</Button>
+                    </CardFooter>
+                </Card>
+            </div>
+        </ModalBody>
+    </Modal>
+
 }
 
 @code {
@@ -350,6 +385,20 @@ else
     private System.Threading.PeriodicTimer? _agoTimer;
     private readonly CancellationTokenSource _agoCts = new();
 
+    private bool rejectNoteVisible;
+    private string? rejectNoteText;   // modal'ın göstereceği metin
+
+    private async Task ShowRejectNote()
+    {
+        var fresh = await AppSvc.GetDraftAsync(id);
+        rejectNoteText = string.IsNullOrWhiteSpace(fresh?.ReviewerNote)
+            ? (string.IsNullOrWhiteSpace(activeDraft?.ReviewerNote) ? "(No rejection note)" : activeDraft!.ReviewerNote)
+            : fresh!.ReviewerNote;
+
+        rejectNoteVisible = true;
+        StateHasChanged();
+    }
+
     [CascadingParameter] private Task<AuthenticationState> AuthTask { get; set; } = default!;
 
     protected override async Task OnParametersSetAsync()
@@ -389,6 +438,7 @@ else
         var vers = await AppSvc.GetVersionsAsync(id, 1);
         latestVersion = vers.Items?.FirstOrDefault();
     }
+
 
     private static Guid? TryGetUserId(System.Security.Claims.ClaimsPrincipal user)
     {

@@ -26,7 +26,8 @@ public class BlogioApplicationAutoMapperProfile : Profile
             .ForMember(d => d.CreatorUserName, opt => opt.Ignore());
 
         CreateMap<BlogPostDraft, BlogPostDraftDto>()
-                .ForMember(d => d.Tags, cfg => cfg.MapFrom(s => s.Tags.Select(t => t.Tag)));
+                .ForMember(d => d.Tags, cfg => cfg.MapFrom(s => s.Tags.Select(t => t.Tag)))
+                .ForMember(d => d.ReviewerNote, opt => opt.MapFrom(s => s.ReviewerNote));
 
         CreateMap<BlogPostVersion, BlogPostVersionDto>()
             .ForMember(d => d.Tags, cfg => cfg.MapFrom(s => s.BlogPostVersionTags.Select(t => t.Tag)));

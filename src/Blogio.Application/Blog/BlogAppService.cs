@@ -483,19 +483,29 @@ namespace Blogio.Blog
         }
 
         // -------------------- Draft --------------------
+
         public async Task<BlogPostDraftDto?> GetDraftAsync(Guid blogPostId)
         {
-            // login değilse taslak döndürmeyelim
-            if (!Me.HasValue) return null;
+            if (!Me.HasValue) return null; // login değilse taslak yok
 
+            var uid = Me.Value;
             var q = (await _draftRepository.GetQueryableAsync())
-                .Where(d => d.BlogPostId == blogPostId && d.OwnerUserId == Me.Value && d.IsActive)
-                .Include(d => d.Tags).ThenInclude(t => t.Tag);
+                .Where(d => d.BlogPostId == blogPostId && d.OwnerUserId == uid && d.IsActive);
 
-            var draft = await AsyncExecuter.FirstOrDefaultAsync(q);
-            return draft is null ? null : ObjectMapper.Map<BlogPostDraft, BlogPostDraftDto>(draft);
+            return await q.Select(d => new BlogPostDraftDto
+            {
+                Id = d.Id,
+                BlogPostId = d.BlogPostId,
+                OwnerUserId = d.OwnerUserId,
+                Title = d.Title,
+                Content = d.Content,
+                IsActive = d.IsActive,
+                Status = d.Status,
+                ReviewerNote = d.ReviewerNote,
+                CreationTime = d.CreationTime,
+                Tags = d.Tags.Select(t => new TagDto { Id = t.TagId, Name = t.Tag.Name }).ToList()
+            }).FirstOrDefaultAsync();
         }
-
         public async Task<BlogPostDraftDto> UpsertDraftAsync(CreateUpdateBlogPostDraftDto input)
         {
             var post = await _blogRepository.GetAsync(input.BlogPostId);
@@ -683,6 +693,7 @@ namespace Blogio.Blog
             draft.Status = DraftStatus.Rejected;      // yazar tekrar düzenleyebilir
             draft.ReviewerNote = note;
             await _draftRepository.UpdateAsync(draft, autoSave: true);
+            await CurrentUnitOfWork.SaveChangesAsync();
         }
 
 
